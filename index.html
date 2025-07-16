@@ -10,13 +10,15 @@
     <script src="./scheduleConfig.js"></script>
     <style>
         body {
-            background-color: #f8fafc;
+            background-color: #0f172a;
+            color: #e2e8f0;
             font-family: 'Inter', sans-serif;
         }
         .card {
-            background-color: white;
+            background-color: #1e293b;
+            border: 1px solid #334155;
             border-radius: 0.75rem;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2);
             padding: 1.5rem;
             margin-bottom: 1.5rem;
         }
@@ -43,23 +45,24 @@
             width: 100%;
             height: 100%;
             overflow: auto;
-            background-color: rgba(0,0,0,0.4);
+            background-color: rgba(0,0,0,0.7);
             justify-content: center;
             align-items: center;
         }
         .modal-content {
-            background-color: #fefefe;
+            background-color: #1e293b;
+            color: #e2e8f0;
             margin: auto;
             padding: 20px;
-            border: 1px solid #888;
+            border: 1px solid #475569;
             width: 90%;
             max-width: 500px;
             border-radius: 0.5rem;
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
             position: relative;
         }
         .close-button {
-            color: #aaa;
+            color: #94a3b8;
             float: right;
             font-size: 28px;
             font-weight: bold;
@@ -69,37 +72,37 @@
         }
         .close-button:hover,
         .close-button:focus {
-            color: black;
+            color: #e2e8f0;
             text-decoration: none;
             cursor: pointer;
         }
     </style>
 </head>
-<body class="bg-slate-50 text-gray-800 font-sans">
+<body class="bg-slate-900 text-slate-200 font-sans">
     <div class="container mx-auto p-4 md:p-8">
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-slate-800">AI & Aviation Training Plan</h1>
-            <p class="text-lg text-slate-600 mt-2">A structured schedule for focused learning.</p>
+            <h1 class="text-4xl font-bold text-slate-100">AI & Aviation Training Plan</h1>
+            <p class="text-lg text-slate-300 mt-2">A structured schedule for focused learning.</p>
         </header>
 
         <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
             <div class="flex-grow">
-                <label for="weekSelect" class="block text-sm font-medium text-gray-700 sr-only">Select Week</label>
-                <select id="weekSelect" class="block w-full md:w-auto p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                <label for="weekSelect" class="block text-sm font-medium text-slate-300 sr-only">Select Week</label>
+                <select id="weekSelect" class="block w-full md:w-auto p-2 bg-slate-700 border border-slate-600 text-slate-200 rounded-md shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm">
                     <!-- Options populated by JavaScript -->
                 </select>
             </div>
-            <h2 id="week-title" class="text-2xl font-semibold text-slate-700 text-center md:text-right">Week 1</h2>
+            <h2 id="week-title" class="text-2xl font-semibold text-slate-200 text-center md:text-right">Week 1</h2>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
             <div class="md:col-span-2">
                 <div class="card">
                     <h3 class="text-xl font-bold mb-4">Weekly Schedule</h3>
-                    <p id="week-notes" class="mb-4 text-slate-700">Loading week 1 goals...</p>
-                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                    <p id="week-notes" class="mb-4 text-slate-300">Loading week 1 goals...</p>
+                    <div class="overflow-x-auto rounded-lg border border-slate-600">
                         <table class="w-full text-left table-auto">
-                            <thead class="bg-slate-100 text-slate-600 uppercase text-sm">
+                            <thead class="bg-slate-700 text-slate-300 uppercase text-sm">
                                 <tr>
                                     <th class="p-3">Day</th>
                                     <th class="p-3">Time</th>
@@ -108,7 +111,7 @@
                                     <th class="p-3">Done?</th>
                                 </tr>
                             </thead>
-                            <tbody id="schedule-body" class="divide-y divide-gray-100">
+                            <tbody id="schedule-body" class="divide-y divide-slate-600">
                                 <!-- JS will populate this -->
                             </tbody>
                         </table>
@@ -345,14 +348,14 @@
             const weekData = scheduleData.filter(item => item.week === week);
 
             if (weekData.length === 0) {
-                tableBody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No schedule found for Week ${week}.</td></tr>`;
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">No schedule found for Week ${week}.</td></tr>`;
                 updateTimeAllocationChart([]);
                 return;
             }
 
             weekData.forEach(item => {
                 const row = document.createElement('tr');
-                row.className = 'hover:bg-gray-50 cursor-pointer';
+                row.className = 'hover:bg-slate-700 cursor-pointer';
 
                 const dayCell = document.createElement('td');
                 dayCell.textContent = item.day;
@@ -459,14 +462,15 @@
                             position: 'top',
                             labels: {
                                 font: { size: 12 },
-                                boxWidth: 20
+                                boxWidth: 20,
+                                color: '#e2e8f0'
                             }
                         },
                         title: {
                             display: true,
                             text: 'Weekly Study Time Allocation',
                             font: { size: 16, weight: 'bold' },
-                            color: '#334155'
+                            color: '#e2e8f0'
                         },
                         tooltip: {
                             callbacks: {
@@ -534,13 +538,27 @@
                             max: 100,
                             title: {
                                 display: true,
-                                text: 'Percentage (%)'
+                                text: 'Percentage (%)',
+                                color: '#e2e8f0'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            },
+                            grid: {
+                                color: '#475569'
                             }
                         },
                         x: {
                             title: {
                                 display: true,
-                                text: 'Category'
+                                text: 'Category',
+                                color: '#e2e8f0'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            },
+                            grid: {
+                                color: '#475569'
                             }
                         }
                     },
@@ -550,7 +568,7 @@
                             display: true,
                             text: 'Overall Progress by Category',
                             font: { size: 16, weight: 'bold' },
-                            color: '#334155'
+                            color: '#e2e8f0'
                         },
                         tooltip: {
                             callbacks: {
@@ -627,13 +645,27 @@
                             max: 100,
                             title: {
                                 display: true,
-                                text: 'Percentage (%)'
+                                text: 'Percentage (%)',
+                                color: '#e2e8f0'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            },
+                            grid: {
+                                color: '#475569'
                             }
                         },
                         x: {
                             title: {
                                 display: true,
-                                text: 'Learning Phase'
+                                text: 'Learning Phase',
+                                color: '#e2e8f0'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            },
+                            grid: {
+                                color: '#475569'
                             }
                         }
                     },
@@ -643,7 +675,7 @@
                             display: true,
                             text: 'Overall Progress by Phase',
                             font: { size: 16, weight: 'bold' },
-                            color: '#334155'
+                            color: '#e2e8f0'
                         },
                         tooltip: {
                             callbacks: {
