@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI & Aviation Training Schedule</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Note: For production, install Tailwind CSS locally instead of using CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="./scheduleConfig.js"></script>
+    <style>
+        body {
+            background-color: #f8fafc;
+            font-family: 'Inter', sans-serif;
+        }
+        .card {
+            background-color: white;
+            border-radius: 0.75rem;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+            max-height: 400px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 90%;
+            max-width: 500px;
+            border-radius: 0.5rem;
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+            position: relative;
+        }
+        .close-button {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+            position: absolute;
+            top: 0.5rem;
+            right: 1rem;
+        }
+        .close-button:hover,
+        .close-button:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-gray-800 font-sans">
+    <div class="container mx-auto p-4 md:p-8">
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-slate-800">AI & Aviation Training Plan</h1>
+            <p class="text-lg text-slate-600 mt-2">A structured schedule for focused learning.</p>
+        </header>
+
+        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+            <div class="flex-grow">
+                <label for="weekSelect" class="block text-sm font-medium text-gray-700 sr-only">Select Week</label>
+                <select id="weekSelect" class="block w-full md:w-auto p-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    <!-- Options populated by JavaScript -->
+                </select>
+            </div>
+            <h2 id="week-title" class="text-2xl font-semibold text-slate-700 text-center md:text-right">Week 1</h2>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div class="md:col-span-2">
+                <div class="card">
+                    <h3 class="text-xl font-bold mb-4">Weekly Schedule</h3>
+                    <p id="week-notes" class="mb-4 text-slate-700">Loading week 1 goals...</p>
+                    <div class="overflow-x-auto rounded-lg border border-gray-200">
+                        <table class="w-full text-left table-auto">
+                            <thead class="bg-slate-100 text-slate-600 uppercase text-sm">
+                                <tr>
+                                    <th class="p-3">Day</th>
+                                    <th class="p-3">Time</th>
+                                    <th class="p-3">Activity</th>
+                                    <th class="p-3">Category</th>
+                                    <th class="p-3">Done?</th>
+                                </tr>
+                            </thead>
+                            <tbody id="schedule-body" class="divide-y divide-gray-100">
+                                <!-- JS will populate this -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="md:col-span-1 flex flex-col">
+                <div class="card flex-grow">
+                    <h3 class="text-xl font-bold mb-4">Weekly Time Allocation</h3>
+                    <div class="chart-container">
+                        <canvas id="timeAllocationChart"></canvas>
+                    </div>
+                </div>
+                <div class="card flex-grow">
+                    <h3 class="text-xl font-bold mb-4">Overall Progress by Category</h3>
+                    <div class="chart-container">
+                        <canvas id="categoryCompletionChart"></canvas>
+                    </div>
+                </div>
+                <div class="card flex-grow">
+                    <h3 class="text-xl font-bold mb-4">Phase Progress</h3>
+                    <div class="chart-container">
+                        <canvas id="phaseCompletionChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal -->
+        <div id="taskModal" class="modal">
+            <div class="modal-content">
+                <span class="close-button">&times;</span>
+                <h2 id="modalTitle" class="text-2xl font-bold mb-4"></h2>
+                <p id="modalDescription" class="text-gray-700"></p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables for schedule data (will be loaded from scheduleConfig.js)
+        // scheduleData, weekNotes, and totalWeeks are defined in scheduleConfig.js
+        let isDataLoaded = false;
+
+        // Chart instances
+        let timeAllocationChart;
+        let categoryCompletionChart;
+        let phaseCompletionChart;
+
+        // Current week state
+        let currentWeek = 1;
+
+        // In-memory storage for completed tasks (since Firebase isn't properly configured)
+        let completedTasks = new Set();
+
+        // Initialize the app
+        document.addEventListener('DOMContentLoaded', async () => {
+            console.log('Initializing application...');
+            
+            // Try to load external schedule data first
+            try {
+                await loadExternalScheduleData();
+                console.log('External schedule data loaded successfully');
+            } catch (error) {
+                console.warn('Failed to load external schedule data, using fallback:', error.message);
+                loadFallbackData();
+            }
+            
+            // Initialize Firebase if properly configured
+            await initializeFirebase();
+            
+            // Initialize the schedule app
+            setupWeekSelector();
+            renderSchedule(currentWeek);
+            
+            if (isFirebaseInitialized) {
+                setupCompletionListener();
+            } else {
+                console.log('Running in standalone mode - completion tracking will not persist');
+                updateAllCharts();
+            }
+        });
+
+        // Function to load external schedule data
+        async function loadExternalScheduleData() {
+            try {
+                // Check if the global variables from scheduleConfig.js are available
+                if (typeof scheduleData !== 'undefined' && scheduleData.length > 0) {
+                    // Use the global scheduleData, weekNotes, and totalWeeks from scheduleConfig.js
+                    // No need to reassign since they're already global
+                } else {
+                    throw new Error('Schedule data not found in global scope');
+                }
+
+                // Validate that we have actual data
+                if (!scheduleData || scheduleData.length === 0) {
+                    throw new Error('No schedule data found in external file');
+                }
+
+                // Ensure all required properties exist
+                const requiredProps = ['week', 'day', 'time', 'subject', 'category', 'duration', 'phase', 'description'];
+                const missingProps = [];
+
+                scheduleData.forEach((item, index) => {
+                    requiredProps.forEach(prop => {
+                        if (!(prop in item)) {
+                            missingProps.push(`Item ${index}: missing ${prop}`);
+                        }
+                    });
+                });
+
+                if (missingProps.length > 0) {
+                    console.warn('Some schedule items are missing required properties:', missingProps);
+                }
+
+                isDataLoaded = true;
+                console.log(`Loaded ${scheduleData.length} schedule items from external file`);
+
+            } catch (error) {
+                throw new Error(`Failed to load scheduleConfig.js: ${error.message}`);
+            }
+        }
+
+        // Fallback data in case external file can't be loaded
+        function loadFallbackData() {
+            console.log('Loading fallback schedule data...');
+            scheduleData = [
+                { week: 1, day: 'Monday', time: '9:00 AM', subject: 'Python Basics Review', category: 'Programming', duration: 2, phase: 1, description: 'Review Python fundamentals, data structures, and basic programming concepts.' },
+                { week: 1, day: 'Monday', time: '2:00 PM', subject: 'Introduction to Machine Learning', category: 'AI/ML', duration: 3, phase: 1, description: 'Overview of ML concepts, supervised vs unsupervised learning, and basic algorithms.' },
+                { week: 1, day: 'Tuesday', time: '9:00 AM', subject: 'Aviation Fundamentals', category: 'Aviation', duration: 2, phase: 1, description: 'Basic principles of flight, aircraft systems, and aviation terminology.' },
+                { week: 1, day: 'Tuesday', time: '2:00 PM', subject: 'Data Science with Pandas', category: 'Programming', duration: 3, phase: 1, description: 'Learn data manipulation and analysis using Pandas library.' },
+                { week: 2, day: 'Monday', time: '9:00 AM', subject: 'Neural Networks Basics', category: 'AI/ML', duration: 3, phase: 2, description: 'Introduction to neural networks, perceptrons, and backpropagation.' },
+                { week: 2, day: 'Monday', time: '2:00 PM', subject: 'Aircraft Systems Integration', category: 'Aviation', duration: 2, phase: 2, description: 'Study how different aircraft systems work together.' }
+            ];
+            
+            weekNotes = {
+                1: "Foundation Phase: Building core knowledge in programming, AI/ML basics, and aviation fundamentals.",
+                2: "Core Learning Phase: Diving deeper into neural networks, advanced aviation systems, and API development."
+            };
+            
+            totalWeeks = 32; // Keep consistent with full schedule even in fallback
+            isDataLoaded = true;
+        }
+
+        // Firebase initialization
+        let isFirebaseInitialized = false;
+        let app, db, auth, userId;
+
+        async function initializeFirebase() {
+            // Check if Firebase variables are defined (they would be injected by your backend)
+            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
+                try {
+                    const firebaseConfig = JSON.parse(__firebase_config);
+                    
+                    // Dynamically import Firebase modules
+                    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
+                    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
+                    const { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, updateDoc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+                    
+                    app = initializeApp(firebaseConfig);
+                    db = getFirestore(app);
+                    auth = getAuth(app);
+                    
+                    // Authenticate user
+                    const user = await new Promise((resolve, reject) => {
+                        onAuthStateChanged(auth, async (user) => {
+                            if (user) {
+                                resolve(user);
+                            } else {
+                                try {
+                                    const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
+                                    if (authToken) {
+                                        await signInWithCustomToken(auth, authToken);
+                                    } else {
+                                        await signInAnonymously(auth);
+                                    }
+                                    resolve(auth.currentUser);
+                                } catch (error) {
+                                    reject(error);
+                                }
+                            }
+                        });
+                    });
+                    
+                    userId = user.uid;
+                    isFirebaseInitialized = true;
+                    console.log('Firebase initialized successfully. User ID:', userId);
+                    
+                } catch (error) {
+                    console.warn('Firebase initialization failed:', error.message);
+                    userId = 'local-user-' + Math.random().toString(36).substr(2, 9);
+                }
+            } else {
+                console.log('Firebase config not available. Running in standalone mode.');
+                userId = 'local-user-' + Math.random().toString(36).substr(2, 9);
+            }
+        }
+
+        function setupWeekSelector() {
+            const weekSelect = document.getElementById('weekSelect');
+            for (let i = 1; i <= totalWeeks; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `Week ${i}`;
+                weekSelect.appendChild(option);
+            }
+            weekSelect.value = currentWeek;
+            weekSelect.addEventListener('change', (event) => {
+                currentWeek = parseInt(event.target.value);
+                renderSchedule(currentWeek);
+            });
+        }
+
+        function getCategoryColor(category) {
+            switch (category) {
+                case 'AI/ML': return 'bg-blue-200 text-blue-800';
+                case 'Aviation': return 'bg-green-200 text-green-800';
+                case 'Programming': return 'bg-yellow-200 text-yellow-800';
+                case 'Personal': return 'bg-purple-200 text-purple-800';
+                case 'Admin': return 'bg-gray-300 text-gray-800';
+                default: return 'bg-gray-200 text-gray-700';
+            }
+        }
+
+        function renderSchedule(week) {
+            const tableBody = document.getElementById('schedule-body');
+            const weekTitle = document.getElementById('week-title');
+            const notesEl = document.getElementById('week-notes');
+
+            tableBody.innerHTML = '';
+            weekTitle.textContent = `Week ${week}`;
+            notesEl.textContent = weekNotes[week] || `No notes for Week ${week}.`;
+
+            const weekData = scheduleData.filter(item => item.week === week);
+
+            if (weekData.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-gray-500">No schedule found for Week ${week}.</td></tr>`;
+                updateTimeAllocationChart([]);
+                return;
+            }
+
+            weekData.forEach(item => {
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-50 cursor-pointer';
+
+                const dayCell = document.createElement('td');
+                dayCell.textContent = item.day;
+                dayCell.className = 'p-3 font-semibold';
+                row.appendChild(dayCell);
+
+                const timeCell = document.createElement('td');
+                timeCell.textContent = item.time;
+                timeCell.className = 'p-3';
+                row.appendChild(timeCell);
+
+                const subjectCell = document.createElement('td');
+                subjectCell.textContent = item.subject;
+                subjectCell.className = 'p-3';
+                row.appendChild(subjectCell);
+
+                const categoryCell = document.createElement('td');
+                const categorySpan = document.createElement('span');
+                categorySpan.textContent = item.category;
+                categorySpan.className = `px-2 py-1 text-xs font-semibold rounded-full ${getCategoryColor(item.category)}`;
+                categoryCell.appendChild(categorySpan);
+                row.appendChild(categoryCell);
+
+                const completionCell = document.createElement('td');
+                completionCell.className = 'p-3 text-center';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'form-checkbox h-5 w-5 text-blue-600 rounded focus:ring-blue-500';
+                checkbox.id = `task-${item.week}-${item.day}-${item.time.replace(/\s/g, '-')}`;
+                checkbox.dataset.taskId = checkbox.id;
+                checkbox.checked = completedTasks.has(checkbox.id);
+                checkbox.addEventListener('change', (event) => {
+                    event.stopPropagation();
+                    toggleCompletion(event.target.dataset.taskId, event.target.checked);
+                });
+                completionCell.appendChild(checkbox);
+                row.appendChild(completionCell);
+
+                // Add click listener to the row for modal
+                row.addEventListener('click', (event) => {
+                    if (event.target.type !== 'checkbox') {
+                        showModal(item.subject, item.description);
+                    }
+                });
+
+                tableBody.appendChild(row);
+            });
+
+            updateTimeAllocationChart(weekData);
+        }
+
+        function toggleCompletion(taskId, isCompleted) {
+            if (isCompleted) {
+                completedTasks.add(taskId);
+            } else {
+                completedTasks.delete(taskId);
+            }
+            updateAllCharts();
+        }
+
+        function updateAllCharts() {
+            updateCategoryCompletionGraph();
+            updatePhaseCompletionGraph();
+        }
+
+        function updateTimeAllocationChart(data) {
+            const ctx = document.getElementById('timeAllocationChart').getContext('2d');
+
+            const categoryTotals = data.reduce((acc, item) => {
+                if (item.category === 'Personal' || item.category === 'Admin') return acc;
+                if (!acc[item.category]) {
+                    acc[item.category] = 0;
+                }
+                acc[item.category] += item.duration;
+                return acc;
+            }, {});
+
+            const labels = Object.keys(categoryTotals);
+            const chartData = Object.values(categoryTotals);
+            const backgroundColors = labels.map(getChartColorForChart);
+            const borderColors = labels.map(label => getChartColorForChart(label).replace('0.7', '1'));
+
+            if (timeAllocationChart) {
+                timeAllocationChart.destroy();
+            }
+
+            timeAllocationChart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Hours per Category',
+                        data: chartData,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top',
+                            labels: {
+                                font: { size: 12 },
+                                boxWidth: 20
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Weekly Study Time Allocation',
+                            font: { size: 16, weight: 'bold' },
+                            color: '#334155'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.label + ': ' + context.parsed + ' hours';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateCategoryCompletionGraph() {
+            const ctx = document.getElementById('categoryCompletionChart').getContext('2d');
+
+            const categoriesToTrack = ['AI/ML', 'Aviation', 'Programming'];
+            const completionStats = categoriesToTrack.reduce((acc, category) => {
+                acc[category] = { total: 0, completed: 0 };
+                return acc;
+            }, {});
+
+            scheduleData.forEach(item => {
+                if (categoriesToTrack.includes(item.category)) {
+                    const taskId = `task-${item.week}-${item.day}-${item.time.replace(/\s/g, '-')}`;
+                    completionStats[item.category].total++;
+                    if (completedTasks.has(taskId)) {
+                        completionStats[item.category].completed++;
+                    }
+                }
+            });
+
+            const labels = categoriesToTrack;
+            const completionPercentages = labels.map(category =>
+                completionStats[category].total > 0
+                    ? (completionStats[category].completed / completionStats[category].total) * 100
+                    : 0
+            );
+
+            const backgroundColors = labels.map(getChartColorForChart);
+            const borderColors = labels.map(label => getChartColorForChart(label).replace('0.7', '1'));
+
+            if (categoryCompletionChart) {
+                categoryCompletionChart.destroy();
+            }
+
+            categoryCompletionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Completion Percentage',
+                        data: completionPercentages,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Percentage (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Category'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Overall Progress by Category',
+                            font: { size: 16, weight: 'bold' },
+                            color: '#334155'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function updatePhaseCompletionGraph() {
+            const ctx = document.getElementById('phaseCompletionChart').getContext('2d');
+
+            const phaseNames = {
+                1: 'Phase 1: Foundation',
+                2: 'Phase 2: Core Learning',
+                3: 'Phase 3: Advanced Specialization',
+                4: 'Phase 4: AI Solution Architect'
+            };
+
+            const phaseStats = {};
+            for (let i = 1; i <= 4; i++) {
+                phaseStats[i] = { total: 0, completed: 0 };
+            }
+
+            scheduleData.forEach(item => {
+                if (item.phase && phaseStats[item.phase]) {
+                    phaseStats[item.phase].total++;
+                    const taskId = `task-${item.week}-${item.day}-${item.time.replace(/\s/g, '-')}`;
+                    if (completedTasks.has(taskId)) {
+                        phaseStats[item.phase].completed++;
+                    }
+                }
+            });
+
+            const labels = Object.keys(phaseStats).map(phase => phaseNames[phase]);
+            const completionPercentages = Object.values(phaseStats).map(stats =>
+                stats.total > 0 ? (stats.completed / stats.total) * 100 : 0
+            );
+
+            const backgroundColors = [
+                'rgba(75, 192, 192, 0.7)',   // Teal for Phase 1
+                'rgba(255, 159, 64, 0.7)',   // Orange for Phase 2
+                'rgba(153, 102, 255, 0.7)',  // Purple for Phase 3
+                'rgba(255, 99, 132, 0.7)'    // Red for Phase 4
+            ];
+            const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
+
+            if (phaseCompletionChart) {
+                phaseCompletionChart.destroy();
+            }
+
+            phaseCompletionChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        label: 'Completion Percentage',
+                        data: completionPercentages,
+                        backgroundColor: backgroundColors,
+                        borderColor: borderColors,
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            title: {
+                                display: true,
+                                text: 'Percentage (%)'
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: 'Learning Phase'
+                            }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        title: {
+                            display: true,
+                            text: 'Overall Progress by Phase',
+                            font: { size: 16, weight: 'bold' },
+                            color: '#334155'
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function getChartColorForChart(category) {
+            switch (category) {
+                case 'AI/ML': return 'rgba(59, 130, 246, 0.7)';        // Blue
+                case 'Aviation': return 'rgba(16, 185, 129, 0.7)';     // Green
+                case 'Programming': return 'rgba(234, 179, 8, 0.7)';   // Yellow
+                case 'Personal': return 'rgba(139, 92, 246, 0.7)';     // Purple
+                case 'Admin': return 'rgba(156, 163, 175, 0.7)';       // Gray
+                default: return 'rgba(209, 213, 219, 0.7)';           // Light Gray
+            }
+        }
+
+        function showModal(title, description) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalDescription').textContent = description;
+            document.getElementById('taskModal').style.display = "flex";
+        }
+
+        function closeModal() {
+            document.getElementById('taskModal').style.display = "none";
+        }
+
+        document.querySelector('.close-button').addEventListener('click', closeModal);
+
+        window.onclick = function(event) {
+            if (event.target == document.getElementById('taskModal')) {
+                closeModal();
+            }
+        }
+    </script>
+</body>
+</html>
