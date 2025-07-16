@@ -167,9 +167,34 @@
         // In-memory storage for completed tasks (since Firebase isn't properly configured)
         let completedTasks = new Set();
 
+        // Load completed tasks from localStorage
+        function loadCompletedTasks() {
+            const saved = localStorage.getItem('completedTasks');
+            if (saved) {
+                try {
+                    completedTasks = new Set(JSON.parse(saved));
+                } catch (error) {
+                    console.warn('Failed to load saved tasks:', error);
+                    completedTasks = new Set();
+                }
+            }
+        }
+
+        // Save completed tasks to localStorage
+        function saveCompletedTasks() {
+            try {
+                localStorage.setItem('completedTasks', JSON.stringify([...completedTasks]));
+            } catch (error) {
+                console.warn('Failed to save tasks:', error);
+            }
+        }
+
         // Initialize the app
         document.addEventListener('DOMContentLoaded', async () => {
             console.log('Initializing application...');
+            
+            // Load saved completed tasks
+            loadCompletedTasks();
             
             // Try to load external schedule data first
             try {
@@ -413,6 +438,7 @@
             } else {
                 completedTasks.delete(taskId);
             }
+            saveCompletedTasks();
             updateAllCharts();
         }
 
