@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule CSV Import Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-900 text-white p-8">
+    <div class="max-w-4xl mx-auto">
+        <h1 class="text-3xl font-bold mb-8">Schedule CSV Import Tool</h1>
+        
+        <!-- Supabase Configuration -->
+        <div class="bg-gray-800 p-6 rounded-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4">Supabase Configuration</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Supabase URL:</label>
+                    <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co" 
+                           class="w-full p-3 bg-gray-700 rounded border border-gray-600">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Supabase Anon Key:</label>
+                    <input type="text" id="supabaseKey" placeholder="eyJ..." 
+                           class="w-full p-3 bg-gray-700 rounded border border-gray-600">
+                </div>
+            </div>
+            <button onclick="initSupabase()" class="mt-4 bg-blue-600 hover:bg-blue-700 px-6 py-2 rounded">
+                Connect to Supabase
+            </button>
+        </div>
+        
+        <!-- CSV Import Section -->
+        <div class="bg-gray-800 p-6 rounded-lg mb-6">
+            <h2 class="text-xl font-semibold mb-4">CSV Import</h2>
+            
+            <!-- CSV Format Info -->
+            <div class="bg-gray-700 p-4 rounded mb-4">
+                <h3 class="font-semibold mb-2">Expected CSV Format:</h3>
+                <p class="text-sm text-gray-300 mb-2">Your CSV should have these columns (in any order):</p>
+                <code class="text-xs bg-gray-900 p-2 rounded block">
+                    week,day,time,subject,category,description,duration,phase
+                </code>
+                <p class="text-xs text-gray-400 mt-2">
+                    Example: 1,Monday,08:00 - 10:00,Prompt Engineering,AI/ML,Learn basic prompts,2,1
+                </p>
+            </div>
+            
+            <!-- File Upload -->
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Select CSV File:</label>
+                    <input type="file" id="csvFile" accept=".csv" 
+                           class="w-full p-3 bg-gray-700 rounded border border-gray-600 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-600 file:text-white">
+                </div>
+                
+                <!-- Import Options -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="hasHeaders" checked class="mr-2">
+                            <span class="text-sm">First row contains headers</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="replaceExisting" class="mr-2">
+                            <span class="text-sm">Replace existing data</span>
+                        </label>
+                    </div>
+                    <div>
+                        <label class="flex items-center">
+                            <input type="checkbox" id="validateData" checked class="mr-2">
+                            <span class="text-sm">Validate data before import</span>
+                        </label>
+                    </div>
+                </div>
+                
+                <div class="flex gap-4">
+                    <button onclick="previewCSV()" class="bg-yellow-600 hover:bg-yellow-700 px-6 py-2 rounded">
+                        Preview CSV
+                    </button>
+                    <button onclick="importCSV()" class="bg-green-600 hover:bg-green-700 px-6 py-2 rounded">
+                        Import to Database
+                    </button>
+                    <button onclick="exportCurrentSchedule()" class="bg-purple-600 hover:bg-purple-700 px-6 py-2 rounded">
+                        Export Current Schedule
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Preview Section -->
+        <div id="previewSection" class="bg-gray-800 p-6 rounded-lg mb-6 hidden">
+            <h2 class="text-xl font-semibold mb-4">CSV Preview</h2>
+            <div id="previewContent" class="overflow-x-auto"></div>
+            <div id="validationResults" class="mt-4"></div>
+        </div>
+        
+        <!-- Status Section -->
+        <div class="bg-gray-800 p-6 rounded-lg">
+            <h2 class="text-xl font-semibold mb-4">Status</h2>
+            <div id="statusContent" class="text-gray-400">Ready to import...</div>
+            <div id="progressBar" class="hidden mt-4">
+                <div class="bg-gray-700 rounded-full h-2">
+                    <div id="progressFill" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                </div>
+                <div id="progressText" class="text-sm text-gray-400 mt-1"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let supabase = null;
+        let csvData = [];
+        let columnMapping = {};
+        
+        function initSupabase() {
+            const url = document.getElementById('supabaseUrl').value;
+            const key = document.getElementById('supabaseKey').value;
+            
+            if (!url || !key) {
+                updateStatus('Please enter both URL and API key', 'error');
+                return;
+            }
+            
+            try {
+                supabase = window.supabase.createClient(url, key);
+                updateStatus('Connected to Supabase successfully!', 'success');
+            } catch (error) {
+                updateStatus(`Failed to connect: ${error.message}`, 'error');
+            }
+        }
+        
+        function parseCSV(text) {
+            const lines = text.split('\n').filter(line => line.trim());
+            const result = [];
+            
+            for (let line of lines) {
+                const row = [];
+                let current = '';
+                let inQuotes = false;
+                
+                for (let i = 0; i < line.length; i++) {
+                    const char = line[i];
+                    
+                    if (char === '"') {
+                        inQuotes = !inQuotes;
+                    } else if (char === ',' && !inQuotes) {
+                        row.push(current.trim());
+                        current = '';
+                    } else {
+                        current += char;
+                    }
+                }
+                row.push(current.trim());
+                result.push(row);
+            }
+            
+            return result;
+        }
+        
+        function detectColumns(headers) {
+            const mapping = {};
+            const requiredColumns = ['week', 'day', 'time', 'subject', 'category', 'description', 'duration', 'phase'];
+            
+            headers.forEach((header, index) => {
+                const normalized = header.toLowerCase().trim();
+                if (requiredColumns.includes(normalized)) {
+                    mapping[normalized] = index;
+                }
+            });
+            
+            return mapping;
+        }
+        
+        function validateRow(row, mapping) {
+            const errors = [];
+            
+            // Check required fields
+            const week = parseInt(row[mapping.week]);
+            if (!week || week < 1 || week > 52) {
+                errors.push('Invalid week number');
+            }
+            
+            const validDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+            const day = row[mapping.day];
+            if (!validDays.includes(day)) {
+                errors.push('Invalid day of week');
+            }
+            
+            const duration = parseInt(row[mapping.duration]);
+            if (!duration || duration < 1) {
+                errors.push('Invalid duration');
+            }
+            
+            const phase = parseInt(row[mapping.phase]);
+            if (!phase || phase < 1 || phase > 4) {
+                errors.push('Invalid phase (must be 1-4)');
+            }
+            
+            if (!row[mapping.subject] || !row[mapping.subject].trim()) {
+                errors.push('Subject is required');
+            }
+            
+            if (!row[mapping.category] || !row[mapping.category].trim()) {
+                errors.push('Category is required');
+            }
+            
+            return errors;
+        }
+        
+        async function previewCSV() {
+            const fileInput = document.getElementById('csvFile');
+            const file = fileInput.files[0];
+            
+            if (!file) {
+                updateStatus('Please select a CSV file', 'error');
+                return;
+            }
+            
+            try {
+                const text = await file.text();
+                const rows = parseCSV(text);
+                
+                if (rows.length === 0) {
+                    updateStatus('CSV file is empty', 'error');
+                    return;
+                }
+                
+                const hasHeaders = document.getElementById('hasHeaders').checked;
+                const headers = hasHeaders ? rows[0] : ['week', 'day', 'time', 'subject', 'category', 'description', 'duration', 'phase'];
+                const dataRows = hasHeaders ? rows.slice(1) : rows;
+                
+                columnMapping = detectColumns(headers);
+                csvData = dataRows;
+                
+                // Show preview
+                const previewSection = document.getElementById('previewSection');
+                const previewContent = document.getElementById('previewContent');
+                
+                let html = '<table class="min-w-full bg-gray-700 rounded">';
+                html += '<thead><tr>';
+                headers.forEach(header => {
+                    html += `<th class="px-4 py-2 text-left">${header}</th>`;
+                });
+                html += '</tr></thead><tbody>';
+                
+                // Show first 10 rows
+                const previewRows = dataRows.slice(0, 10);
+                previewRows.forEach((row, index) => {
+                    html += '<tr class="border-t border-gray-600">';
+                    row.forEach(cell => {
+                        html += `<td class="px-4 py-2">${cell}</td>`;
+                    });
+                    html += '</tr>';
+                });
+                
+                if (dataRows.length > 10) {
+                    html += `<tr><td colspan="${headers.length}" class="px-4 py-2 text-center text-gray-400">... and ${dataRows.length - 10} more rows</td></tr>`;
+                }
+                
+                html += '</tbody></table>';
+                previewContent.innerHTML = html;
+                
+                // Validate data if requested
+                if (document.getElementById('validateData').checked) {
+                    validateCSVData();
+                }
+                
+                previewSection.classList.remove('hidden');
+                updateStatus(`Preview loaded: ${dataRows.length} rows found`, 'success');
+                
+            } catch (error) {
+                updateStatus(`Error reading CSV: ${error.message}`, 'error');
+            }
+        }
+        
+        function validateCSVData() {
+            const validationResults = document.getElementById('validationResults');
+            const errors = [];
+            const warnings = [];
+            
+            // Check column mapping
+            const requiredColumns = ['week', 'day', 'time', 'subject', 'category', 'duration', 'phase'];
+            const missingColumns = requiredColumns.filter(col => !(col in columnMapping));
+            
+            if (missingColumns.length > 0) {
+                errors.push(`Missing required columns: ${missingColumns.join(', ')}`);
+            }
+            
+            // Validate each row
+            let validRows = 0;
+            csvData.forEach((row, index) => {
+                const rowErrors = validateRow(row, columnMapping);
+                if (rowErrors.length === 0) {
+                    validRows++;
+                } else {
+                    warnings.push(`Row ${index + 1}: ${rowErrors.join(', ')}`);
+                }
+            });
+            
+            let html = '<div class="bg-gray-700 p-4 rounded">';
+            html += '<h4 class="font-semibold mb-2">Validation Results</h4>';
+            
+            if (errors.length > 0) {
+                html += '<div class="text-red-400 mb-2">';
+                html += '<strong>Errors:</strong><ul class="list-disc list-inside">';
+                errors.forEach(error => html += `<li>${error}</li>`);
+                html += '</ul></div>';
+            }
+            
+            if (warnings.length > 0) {
+                html += '<div class="text-yellow-400 mb-2">';
+                html += '<strong>Warnings:</strong><ul class="list-disc list-inside max-h-32 overflow-y-auto">';
+                warnings.slice(0, 10).forEach(warning => html += `<li>${warning}</li>`);
+                if (warnings.length > 10) {
+                    html += `<li>... and ${warnings.length - 10} more warnings</li>`;
+                }
+                html += '</ul></div>';
+            }
+            
+            html += `<div class="text-green-400">Valid rows: ${validRows}/${csvData.length}</div>`;
+            html += '</div>';
+            
+            validationResults.innerHTML = html;
+        }
+        
+        async function importCSV() {
+            if (!supabase) {
+                updateStatus('Please connect to Supabase first', 'error');
+                return;
+            }
+            
+            if (csvData.length === 0) {
+                updateStatus('Please preview CSV data first', 'error');
+                return;
+            }
+            
+            try {
+                showProgress(true);
+                updateProgress(0, 'Starting import...');
+                
+                // Clear existing data if requested
+                if (document.getElementById('replaceExisting').checked) {
+                    updateProgress(10, 'Clearing existing data...');
+                    const { error: deleteError } = await supabase
+                        .from('schedule_data')
+                        .delete()
+                        .neq('id', 'impossible_id'); // Delete all
+                    
+                    if (deleteError) {
+                        throw new Error(`Failed to clear existing data: ${deleteError.message}`);
+                    }
+                }
+                
+                // Transform CSV data to database format
+                updateProgress(20, 'Transforming data...');
+                const dbData = [];
+                
+                csvData.forEach((row, index) => {
+                    if (document.getElementById('validateData').checked) {
+                        const errors = validateRow(row, columnMapping);
+                        if (errors.length > 0) {
+                            console.warn(`Skipping invalid row ${index + 1}:`, errors);
+                            return;
+                        }
+                    }
+                    
+                    const item = {
+                        id: `schedule_${row[columnMapping.week]}_${row[columnMapping.day]}_${index}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+                        week: parseInt(row[columnMapping.week]),
+                        day: row[columnMapping.day],
+                        time: row[columnMapping.time],
+                        subject: row[columnMapping.subject],
+                        category: row[columnMapping.category],
+                        description: row[columnMapping.description] || '',
+                        duration: parseInt(row[columnMapping.duration]),
+                        phase: parseInt(row[columnMapping.phase])
+                    };
+                    
+                    dbData.push(item);
+                });
+                
+                // Insert data in batches
+                const batchSize = 100;
+                let successCount = 0;
+                
+                for (let i = 0; i < dbData.length; i += batchSize) {
+                    const batch = dbData.slice(i, i + batchSize);
+                    const progress = 20 + (i / dbData.length) * 70;
+                    
+                    updateProgress(progress, `Importing batch ${Math.floor(i / batchSize) + 1}...`);
+                    
+                    const { error } = await supabase
+                        .from('schedule_data')
+                        .upsert(batch, { onConflict: 'id' });
+                    
+                    if (error) {
+                        throw new Error(`Failed to import batch: ${error.message}`);
+                    }
+                    
+                    successCount += batch.length;
+                }
+                
+                updateProgress(100, 'Import completed!');
+                updateStatus(`Successfully imported ${successCount} schedule items!`, 'success');
+                
+                setTimeout(() => showProgress(false), 2000);
+                
+            } catch (error) {
+                updateStatus(`Import failed: ${error.message}`, 'error');
+                showProgress(false);
+            }
+        }
+        
+        async function exportCurrentSchedule() {
+            if (!supabase) {
+                updateStatus('Please connect to Supabase first', 'error');
+                return;
+            }
+            
+            try {
+                updateStatus('Exporting current schedule...', 'info');
+                
+                const { data, error } = await supabase
+                    .from('schedule_data')
+                    .select('*')
+                    .order('week', { ascending: true })
+                    .order('day', { ascending: true });
+                
+                if (error) {
+                    throw new Error(`Failed to fetch data: ${error.message}`);
+                }
+                
+                if (!data || data.length === 0) {
+                    updateStatus('No schedule data found to export', 'error');
+                    return;
+                }
+                
+                // Convert to CSV
+                const headers = ['week', 'day', 'time', 'subject', 'category', 'description', 'duration', 'phase'];
+                let csv = headers.join(',') + '\n';
+                
+                data.forEach(row => {
+                    const values = headers.map(header => {
+                        let value = row[header] || '';
+                        // Escape commas and quotes
+                        if (value.toString().includes(',') || value.toString().includes('"')) {
+                            value = `"${value.toString().replace(/"/g, '""')}"`;
+                        }
+                        return value;
+                    });
+                    csv += values.join(',') + '\n';
+                });
+                
+                // Download file
+                const blob = new Blob([csv], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `schedule_export_${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+                
+                updateStatus(`Exported ${data.length} schedule items to CSV`, 'success');
+                
+            } catch (error) {
+                updateStatus(`Export failed: ${error.message}`, 'error');
+            }
+        }
+        
+        function showProgress(show) {
+            const progressBar = document.getElementById('progressBar');
+            if (show) {
+                progressBar.classList.remove('hidden');
+            } else {
+                progressBar.classList.add('hidden');
+            }
+        }
+        
+        function updateProgress(percent, text) {
+            const progressFill = document.getElementById('progressFill');
+            const progressText = document.getElementById('progressText');
+            
+            progressFill.style.width = `${percent}%`;
+            progressText.textContent = text;
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusContent = document.getElementById('statusContent');
+            const colors = {
+                info: 'text-blue-400',
+                success: 'text-green-400',
+                error: 'text-red-400'
+            };
+            
+            statusContent.className = colors[type] || 'text-gray-400';
+            statusContent.textContent = message;
+        }
+    </script>
+</body>
+</html>

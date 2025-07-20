@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schedule Migration Tool</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-900 text-white p-8">
+    <div class="max-w-2xl mx-auto">
+        <h1 class="text-2xl font-bold mb-6">Schedule Migration Tool</h1>
+        
+        <div class="bg-gray-800 p-6 rounded-lg mb-6">
+            <h2 class="text-lg font-semibold mb-4">Supabase Configuration</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Supabase URL:</label>
+                    <input type="text" id="supabaseUrl" placeholder="https://your-project.supabase.co" 
+                           class="w-full p-2 bg-gray-700 rounded border border-gray-600">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-2">Supabase Anon Key:</label>
+                    <input type="text" id="supabaseKey" placeholder="eyJ..." 
+                           class="w-full p-2 bg-gray-700 rounded border border-gray-600">
+                </div>
+                <button onclick="initSupabase()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded">
+                    Connect to Supabase
+                </button>
+            </div>
+        </div>
+        
+        <div class="bg-gray-800 p-6 rounded-lg mb-6">
+            <h2 class="text-lg font-semibold mb-4">Schedule Data</h2>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-2">Paste your scheduleData array:</label>
+                    <textarea id="scheduleDataInput" rows="10" placeholder="Paste the scheduleData array from scheduleConfig.js here..."
+                              class="w-full p-2 bg-gray-700 rounded border border-gray-600 font-mono text-sm"></textarea>
+                </div>
+                <button onclick="migrateData()" class="bg-green-600 hover:bg-green-700 px-4 py-2 rounded">
+                    Migrate to Database
+                </button>
+            </div>
+        </div>
+        
+        <div id="status" class="bg-gray-800 p-6 rounded-lg">
+            <h2 class="text-lg font-semibold mb-4">Status</h2>
+            <div id="statusContent" class="text-gray-400">Ready to migrate...</div>
+        </div>
+    </div>
+
+    <script>
+        let supabase = null;
+        
+        function initSupabase() {
+            const url = document.getElementById('supabaseUrl').value;
+            const key = document.getElementById('supabaseKey').value;
+            
+            if (!url || !key) {
+                updateStatus('Please enter both URL and API key', 'error');
+                return;
+            }
+            
+            try {
+                supabase = window.supabase.createClient(url, key);
+                updateStatus('Connected to Supabase successfully!', 'success');
+            } catch (error) {
+                updateStatus(`Failed to connect: ${error.message}`, 'error');
+            }
+        }
+        
+        async function migrateData() {
+            if (!supabase) {
+                updateStatus('Please connect to Supabase first', 'error');
+                return;
+            }
+            
+            const dataInput = document.getElementById('scheduleDataInput').value;
+            if (!dataInput.trim()) {
+                updateStatus('Please paste your schedule data', 'error');
+                return;
+            }
+            
+            try {
+                updateStatus('Parsing schedule data...', 'info');
+                
+                // Parse the data (assuming it's a JavaScript array)
+                let scheduleData;
+                if (dataInput.trim().startsWith('[')) {
+                    scheduleData = JSON.parse(dataInput);
+                } else {
+                    // If it's a variable assignment, extract the array
+                    const match = dataInput.match(/=\s*(\[[\s\S]*\]);?$/);
+                    if (match) {
+                        scheduleData = JSON.parse(match[1]);
+                    } else {
+                        throw new Error('Could not parse schedule data');
+                    }
+                }
+                
+                updateStatus(`Found ${scheduleData.length} schedule items. Starting migration...`, 'info');
+                
+                // Transform and insert data
+                const dbData = scheduleData.map((item, index) => ({
+                    id: `schedule_${item.week}_${item.day}_${item.time}_${index}`.replace(/[^a-zA-Z0-9_]/g, '_'),
+                    week: item.week,
+                    day: item.day,
+                    time: item.time,
+                    subject: item.subject,
+                    category: item.category,
+                    description: item.description || '',
+                    duration: item.duration,
+                    phase: item.phase
+                }));
+                
+                // Insert in batches
+                const batchSize = 100;
+                let successCount = 0;
+                
+                for (let i = 0; i < dbData.length; i += batchSize) {
+                    const batch = dbData.slice(i, i + batchSize);
+                    
+                    const { error } = await supabase
+                        .from('schedule_data')
+                        .upsert(batch, { onConflict: 'id' });
+                    
+                    if (error) {
+                        throw error;
+                    }
+                    
+                    successCount += batch.length;
+                    updateStatus(`Migrated ${successCount}/${dbData.length} items...`, 'info');
+                }
+                
+                updateStatus(`Migration completed! Successfully migrated ${successCount} schedule items.`, 'success');
+                
+            } catch (error) {
+                updateStatus(`Migration failed: ${error.message}`, 'error');
+            }
+        }
+        
+        function updateStatus(message, type = 'info') {
+            const statusContent = document.getElementById('statusContent');
+            const colors = {
+                info: 'text-blue-400',
+                success: 'text-green-400',
+                error: 'text-red-400'
+            };
+            
+            statusContent.className = colors[type] || 'text-gray-400';
+            statusContent.textContent = message;
+        }
+    </script>
+</body>
+</html>
