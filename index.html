@@ -299,40 +299,22 @@
         // Function to load external schedule data
         async function loadExternalScheduleData() {
             try {
-                // Check if the global variables from scheduleConfig.js are available
+                // First try to load from Supabase
+                const supabaseLoaded = await loadScheduleFromSupabase();
+                if (supabaseLoaded) {
+                    return;
+                }
+                
+                // Fallback to local scheduleConfig.js
                 if (typeof scheduleData !== 'undefined' && scheduleData.length > 0) {
-                    // Use the global scheduleData, weekNotes, and totalWeeks from scheduleConfig.js
-                    // No need to reassign since they're already global
+                    // Use the global scheduleData from scheduleConfig.js
+                    isDataLoaded = true;
+                    console.log(`Loaded ${scheduleData.length} schedule items from local file`);
                 } else {
-                    throw new Error('Schedule data not found in global scope');
+                    throw new Error('No schedule data found');
                 }
-
-                // Validate that we have actual data
-                if (!scheduleData || scheduleData.length === 0) {
-                    throw new Error('No schedule data found in external file');
-                }
-
-                // Ensure all required properties exist
-                const requiredProps = ['week', 'day', 'time', 'subject', 'category', 'duration', 'phase', 'description'];
-                const missingProps = [];
-
-                scheduleData.forEach((item, index) => {
-                    requiredProps.forEach(prop => {
-                        if (!(prop in item)) {
-                            missingProps.push(`Item ${index}: missing ${prop}`);
-                        }
-                    });
-                });
-
-                if (missingProps.length > 0) {
-                    console.warn('Some schedule items are missing required properties:', missingProps);
-                }
-
-                isDataLoaded = true;
-                console.log(`Loaded ${scheduleData.length} schedule items from external file`);
-
             } catch (error) {
-                throw new Error(`Failed to load scheduleConfig.js: ${error.message}`);
+                throw new Error(`Failed to load schedule data: ${error.message}`);
             }
         }
 
@@ -816,6 +798,55 @@
         window.onclick = function(event) {
             if (event.target == document.getElementById('taskModal')) {
                 closeModal();
+            }
+        }
+
+        async function loadScheduleFromSupabase() {
+            try {
+                console.log('Loading schedule from Supabase...');
+                const { data, error } = await window.supabaseClient
+                    .from('schedule_data')
+                    .select('*')
+                    .order('week', { ascending: true })
+                    .order('day', { ascending: true });
+                
+                if (error) {
+                    throw error;
+                }
+                
+                if (data && data.length > 0) {
+                    // Convert database format to app format
+                    scheduleData = data.map(item => ({
+                        week: item.week,
+                        day: item.day,
+                        time: item.time,
+                        subject: item.subject,
+                        category: item.category,
+                        description: item.description,
+                        duration: item.duration,
+                        phase: item.phase
+                    }));
+                    
+                    // Set total weeks based on data
+                    totalWeeks = Math.max(...scheduleData.map(item => item.week));
+                    
+                    // Generate week notes if not already set
+                    if (typeof weekNotes === 'undefined') {
+                        weekNotes = {};
+                        for (let i = 1; i <= totalWeeks; i++) {
+                            weekNotes[i] = `Week ${i} learning goals and activities.`;
+                        }
+                    }
+                    
+                    isDataLoaded = true;
+                    console.log(`Loaded ${scheduleData.length} schedule items from Supabase`);
+                    return true;
+                } else {
+                    throw new Error('No schedule data found in database');
+                }
+            } catch (error) {
+                console.error('Failed to load from Supabase:', error);
+                return false;
             }
         }
     </script>
