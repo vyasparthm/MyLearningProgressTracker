@@ -236,17 +236,17 @@
         }
 
         // Save/load schedule shifts
-        async function saveScheduleShifts() {
+         async function saveScheduleShifts() {
             try {
                 const shiftsArray = Array.from(scheduleShifts.entries());
-                await supabase.from('schedule_shifts').upsert({
+                await window.supabaseClient.from('schedule_shifts').upsert({
                     id: 'user_shifts',
                     shifts: shiftsArray
                 });
             } catch (error) {
-                console.warn('Failed to save to Supabase, using localStorage:', error);
-                localStorage.setItem('scheduleShifts', JSON.stringify(Array.from(scheduleShifts.entries())));
+                // ... error handling
             }
+        
         }
 
         async function loadScheduleShifts() {
@@ -819,5 +819,6 @@
             }
         }
     </script>
+    <script src="schedule-csv-converter.js"></script>
 </body>
 </html>
