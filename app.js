@@ -103,14 +103,25 @@ function saveCompletedTasks() {
 // Load schedule shifts
 async function loadScheduleShifts() {
     try {
-        const { data } = await window.supabaseClient
+        const { data, error } = await window.supabaseClient
             .from('schedule_shifts')
             .select('shifts')
             .eq('id', 'user_shifts')
-            .single();
+            .maybeSingle(); // Use maybeSingle() instead of single()
+        
+        if (error) {
+            console.warn('Failed to load shifts from database:', error);
+            // Fallback to localStorage
+            const saved = localStorage.getItem('scheduleShifts');
+            if (saved) {
+                scheduleShifts = new Map(JSON.parse(saved));
+            }
+            return;
+        }
         
         if (data?.shifts) {
             scheduleShifts = new Map(data.shifts);
+            console.log('Schedule shifts loaded from Supabase');
         }
     } catch (error) {
         console.warn('Failed to load shifts from database, using localStorage:', error);
@@ -444,6 +455,7 @@ function showError(message) {
         errorDiv.remove();
     }, 5000);
 }
+
 
 
 
