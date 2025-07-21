@@ -4,852 +4,172 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI & Aviation Training Schedule</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <script src="supabase-config.js"></script>
-    <script src="scheduleConfig.js"></script>
-    <script src="schedule-shift.js"></script>
     <style>
         body {
-            background-color: #0f172a;
-            color: #e2e8f0;
-            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
         }
         .card {
-            background-color: #1e293b;
-            border: 1px solid #334155;
-            border-radius: 0.75rem;
-            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.2);
-            padding: 1.5rem;
-            margin-bottom: 1.5rem;
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
         }
-        .chart-container {
-            position: relative;
-            width: 100%;
-            max-width: 600px;
-            margin-left: auto;
-            margin-right: auto;
-            height: 300px;
-            max-height: 400px;
+        .btn-primary {
+            background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+            transition: all 0.3s ease;
         }
-        @media (min-width: 768px) {
-            .chart-container {
-                height: 350px;
-            }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(59, 130, 246, 0.4);
         }
-        .modal {
-            display: none;
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            overflow: auto;
-            background-color: rgba(0,0,0,0.7);
-            justify-content: center;
-            align-items: center;
+        .btn-secondary {
+            background: linear-gradient(135deg, #6366f1 0%, #4338ca 100%);
         }
-        .modal-content {
-            background-color: #1e293b;
-            color: #e2e8f0;
-            margin: auto;
-            padding: 20px;
-            border: 1px solid #475569;
-            width: 90%;
-            max-width: 500px;
-            border-radius: 0.5rem;
-            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.2);
-            position: relative;
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
         }
-        .close-button {
-            color: #94a3b8;
-            float: right;
-            font-size: 28px;
-            font-weight: bold;
-            position: absolute;
-            top: 0.5rem;
-            right: 1rem;
+        .btn-warning {
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
         }
-        .close-button:hover,
-        .close-button:focus {
-            color: #e2e8f0;
-            text-decoration: none;
-            cursor: pointer;
+        .session-card {
+            transition: all 0.3s ease;
+            border-left: 4px solid transparent;
         }
+        .session-card:hover {
+            transform: translateX(4px);
+            border-left-color: #3b82f6;
+        }
+        .completed {
+            background: rgba(34, 197, 94, 0.1);
+            border-left-color: #22c55e !important;
+        }
+        .category-ai { border-left-color: #3b82f6; }
+        .category-aviation { border-left-color: #10b981; }
+        .category-programming { border-left-color: #f59e0b; }
+        .category-personal { border-left-color: #8b5cf6; }
+        .category-admin { border-left-color: #6b7280; }
     </style>
 </head>
-<body class="bg-slate-900 text-slate-200 font-sans">
-    <div class="container mx-auto p-4 md:p-8">
+<body class="text-slate-100">
+    <div class="container mx-auto p-6 max-w-7xl">
+        <!-- Header -->
         <header class="text-center mb-8">
-            <h1 class="text-4xl font-bold text-slate-100">AI & Aviation Training Plan</h1>
-            <p class="text-lg text-slate-300 mt-2">A structured schedule for focused learning.</p>
+            <h1 class="text-5xl font-bold bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mb-4">
+                AI & Aviation Training Schedule
+            </h1>
+            <p class="text-xl text-slate-300">32-Week Structured Learning Path</p>
         </header>
 
-        <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-            <div class="flex-grow">
-                <label for="weekSelect" class="block text-sm font-medium text-slate-300 sr-only">Select Week</label>
-                <select id="weekSelect" class="block w-full md:w-auto p-2 bg-slate-700 border border-slate-600 text-slate-200 rounded-md shadow-sm focus:ring-blue-400 focus:border-blue-400 sm:text-sm">
-                    <!-- Options populated by JavaScript -->
-                </select>
-            </div>
-            <h2 id="week-title" class="text-2xl font-semibold text-slate-200 text-center md:text-right">Week 1</h2>
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div class="md:col-span-2">
-                <div class="card">
-                    <h3 class="text-xl font-bold mb-4">Weekly Schedule</h3>
-                    <p id="week-notes" class="mb-4 text-slate-300">Loading week 1 goals...</p>
-                    <div class="overflow-x-auto rounded-lg border border-slate-600">
-                        <table class="w-full text-left table-auto">
-                            <thead class="bg-slate-700 text-slate-300 uppercase text-sm">
-                                <tr>
-                                    <th class="p-3">Day</th>
-                                    <th class="p-3">Time</th>
-                                    <th class="p-3">Activity</th>
-                                    <th class="p-3">Category</th>
-                                    <th class="p-3">Done?</th>
-                                </tr>
-                            </thead>
-                            <tbody id="schedule-body" class="divide-y divide-slate-600">
-                                <!-- JS will populate this -->
-                            </tbody>
-                        </table>
-                    </div>
+        <!-- Week Navigation -->
+        <div class="card rounded-xl p-6 mb-8">
+            <div class="flex flex-col md:flex-row justify-between items-center gap-4">
+                <div class="flex items-center gap-4">
+                    <button id="prevWeek" class="btn-primary px-4 py-2 rounded-lg font-medium">← Previous</button>
+                    <select id="weekSelect" class="bg-slate-700 border border-slate-600 rounded-lg px-4 py-2 text-slate-100">
+                        <!-- Populated by JS -->
+                    </select>
+                    <button id="nextWeek" class="btn-primary px-4 py-2 rounded-lg font-medium">Next →</button>
                 </div>
-            </div>
-
-            <div class="md:col-span-1 flex flex-col">
-                <div class="card flex-grow">
-                    <h3 class="text-xl font-bold mb-4">Weekly Time Allocation</h3>
-                    <div class="chart-container">
-                        <canvas id="timeAllocationChart"></canvas>
-                    </div>
+                <div class="text-center">
+                    <h2 id="weekTitle" class="text-3xl font-bold text-slate-100">Week 1</h2>
+                    <p id="weekPhase" class="text-slate-400">Phase 1: Foundation Building</p>
                 </div>
-                <div class="card flex-grow">
-                    <h3 class="text-xl font-bold mb-4">Overall Progress by Category</h3>
-                    <div class="chart-container">
-                        <canvas id="categoryCompletionChart"></canvas>
-                    </div>
-                </div>
-                <div class="card flex-grow">
-                    <h3 class="text-xl font-bold mb-4">Phase Progress</h3>
-                    <div class="chart-container">
-                        <canvas id="phaseCompletionChart"></canvas>
-                    </div>
+                <div class="flex gap-2">
+                    <button id="resetShifts" class="btn-danger px-4 py-2 rounded-lg font-medium text-sm">Reset All Shifts</button>
                 </div>
             </div>
         </div>
 
-        <!-- Modal -->
-        <div id="taskModal" class="modal">
-            <div class="modal-content">
-                <span class="close-button">&times;</span>
-                <h2 id="modalTitle" class="text-2xl font-bold mb-4"></h2>
-                <p id="modalDescription" class="text-slate-200"></p>
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <!-- Schedule Column -->
+            <div class="lg:col-span-2">
+                <div class="card rounded-xl p-6">
+                    <h3 class="text-2xl font-bold mb-6 flex items-center gap-3">
+                        <span class="w-3 h-3 bg-blue-500 rounded-full"></span>
+                        Weekly Schedule
+                    </h3>
+                    <div id="scheduleContainer" class="space-y-4">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Stats & Charts Column -->
+            <div class="space-y-6">
+                <!-- Week Stats -->
+                <div class="card rounded-xl p-6">
+                    <h3 class="text-xl font-bold mb-4">Week Progress</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="text-center">
+                            <div id="completedCount" class="text-3xl font-bold text-green-400">0</div>
+                            <div class="text-sm text-slate-400">Completed</div>
+                        </div>
+                        <div class="text-center">
+                            <div id="totalCount" class="text-3xl font-bold text-blue-400">0</div>
+                            <div class="text-sm text-slate-400">Total</div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div class="bg-slate-700 rounded-full h-3">
+                            <div id="progressBar" class="bg-gradient-to-r from-green-500 to-blue-500 h-3 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Category Distribution -->
+                <div class="card rounded-xl p-6">
+                    <h3 class="text-xl font-bold mb-4">Time Allocation</h3>
+                    <canvas id="categoryChart" width="300" height="300"></canvas>
+                </div>
+
+                <!-- Phase Overview -->
+                <div class="card rounded-xl p-6">
+                    <h3 class="text-xl font-bold mb-4">Phase Overview</h3>
+                    <div class="space-y-3">
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">Phase 1: Foundation</span>
+                            <span class="text-sm text-slate-400">Weeks 1-4</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">Phase 2: Core Learning</span>
+                            <span class="text-sm text-slate-400">Weeks 5-16</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">Phase 3: Specialization</span>
+                            <span class="text-sm text-slate-400">Weeks 17-24</span>
+                        </div>
+                        <div class="flex justify-between items-center">
+                            <span class="text-sm">Phase 4: Job Search</span>
+                            <span class="text-sm text-slate-400">Weeks 25-32</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
 
-    <script>
-        // Supabase configuration
-        // const SUPABASE_URL = 'YOUR_SUPABASE_URL'; // Replace with your URL
-        // const SUPABASE_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY'; // Replace with your key
-        // const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    <!-- Task Detail Modal -->
+    <div id="taskModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="card rounded-xl p-6 max-w-2xl mx-4 max-h-[80vh] overflow-y-auto">
+            <div class="flex justify-between items-start mb-4">
+                <h2 id="modalTitle" class="text-2xl font-bold"></h2>
+                <button id="closeModal" class="text-slate-400 hover:text-slate-200 text-2xl">&times;</button>
+            </div>
+            <div id="modalCategory" class="inline-block px-3 py-1 rounded-full text-sm font-medium mb-4"></div>
+            <p id="modalDescription" class="text-slate-300 leading-relaxed"></p>
+            <div class="mt-6 flex gap-3">
+                <button id="modalComplete" class="btn-primary px-4 py-2 rounded-lg">Mark Complete</button>
+                <button id="modalShiftNext" class="btn-warning px-4 py-2 rounded-lg">Move to Tomorrow</button>
+            </div>
+        </div>
+    </div>
 
-        // Global variables for schedule data
-        // let isDataLoaded = false;
-        // let scheduleShifts = new Map(); // Track schedule shifts: taskId -> daysShifted
-
-        // Chart instances
-        let timeAllocationChart;
-        let categoryCompletionChart;
-        let phaseCompletionChart;
-
-        // Current week state
-        let currentWeek = 1;
-
-        // In-memory storage for completed tasks (since Firebase isn't properly configured)
-        let completedTasks = new Set();
-
-        // Load completed tasks from localStorage
-        function loadCompletedTasks() {
-            const saved = localStorage.getItem('completedTasks');
-            if (saved) {
-                try {
-                    completedTasks = new Set(JSON.parse(saved));
-                } catch (error) {
-                    console.warn('Failed to load saved tasks:', error);
-                    completedTasks = new Set();
-                }
-            }
-        }
-
-        // Save completed tasks to localStorage
-        function saveCompletedTasks() {
-            try {
-                localStorage.setItem('completedTasks', JSON.stringify([...completedTasks]));
-            } catch (error) {
-                console.warn('Failed to save tasks:', error);
-            }
-        }
-
-        // Schedule shifting functionality
-        function getShiftedDate(originalWeek, originalDay, daysToShift) {
-            const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-            const dayIndex = dayNames.indexOf(originalDay);
-            
-            // Calculate total days from start
-            const totalDays = (originalWeek - 1) * 7 + dayIndex + daysToShift;
-            
-            const newWeek = Math.floor(totalDays / 7) + 1;
-            const newDayIndex = totalDays % 7;
-            const newDay = dayNames[newDayIndex];
-            
-            return { week: newWeek, day: newDay };
-        }
-
-        function shiftScheduleItem(taskId, daysToShift) {
-            scheduleShifts.set(taskId, (scheduleShifts.get(taskId) || 0) + daysToShift);
-            saveScheduleShifts();
-            renderSchedule(currentWeek);
-        }
-
-        function shiftEntireDay(week, day, daysToShift) {
-            const dayTasks = scheduleData.filter(item => item.week === week && item.day === day);
-            dayTasks.forEach(task => {
-                const taskId = `${task.week}-${task.day}-${task.time}-${task.subject}`;
-                shiftScheduleItem(taskId, daysToShift);
-            });
-        }
-
-        function getEffectiveScheduleItem(item) {
-            const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
-            const shift = scheduleShifts.get(taskId) || 0;
-            
-            if (shift === 0) return item;
-            
-            const shifted = getShiftedDate(item.week, item.day, shift);
-            return { ...item, week: shifted.week, day: shifted.day };
-        }
-
-        // Save/load schedule shifts
-         async function saveScheduleShifts() {
-            try {
-                const shiftsArray = Array.from(scheduleShifts.entries());
-                await window.supabaseClient.from('schedule_shifts').upsert({
-                    id: 'user_shifts',
-                    shifts: shiftsArray
-                });
-            } catch (error) {
-                // ... error handling
-            }
-        
-        }
-
-        async function loadScheduleShifts() {
-            try {
-                const { data } = await supabase.from('schedule_shifts').select('shifts').eq('id', 'user_shifts').single();
-                if (data?.shifts) {
-                    scheduleShifts = new Map(data.shifts);
-                }
-            } catch (error) {
-                console.warn('Failed to load from Supabase, using localStorage:', error);
-                const saved = localStorage.getItem('scheduleShifts');
-                if (saved) {
-                    scheduleShifts = new Map(JSON.parse(saved));
-                }
-            }
-        }
-
-        // Initialize the app
-        document.addEventListener('DOMContentLoaded', async () => {
-            console.log('Initializing application...');
-            
-            // Load saved data
-            loadCompletedTasks();
-            await loadScheduleShifts();
-            
-            // Try to load external schedule data first
-            try {
-                await loadExternalScheduleData();
-                console.log('External schedule data loaded successfully');
-            } catch (error) {
-                console.warn('Failed to load external schedule data, using fallback:', error.message);
-                loadFallbackData();
-            }
-            
-            // Initialize Firebase if properly configured
-            await initializeFirebase();
-            
-            // Initialize the schedule app
-            setupWeekSelector();
-            renderSchedule(currentWeek);
-            
-            if (isFirebaseInitialized) {
-                setupCompletionListener();
-            } else {
-                console.log('Running in standalone mode - completion tracking will not persist');
-                updateAllCharts();
-            }
-        });
-
-        // Function to load external schedule data
-        async function loadExternalScheduleData() {
-            try {
-                // First try to load from Supabase
-                const supabaseLoaded = await loadScheduleFromSupabase();
-                if (supabaseLoaded) {
-                    return;
-                }
-                
-                // Fallback to local scheduleConfig.js
-                if (typeof scheduleData !== 'undefined' && scheduleData.length > 0) {
-                    // Use the global scheduleData from scheduleConfig.js
-                    isDataLoaded = true;
-                    console.log(`Loaded ${scheduleData.length} schedule items from local file`);
-                } else {
-                    throw new Error('No schedule data found');
-                }
-            } catch (error) {
-                throw new Error(`Failed to load schedule data: ${error.message}`);
-            }
-        }
-
-        // Fallback data in case external file can't be loaded
-        function loadFallbackData() {
-            console.log('Loading fallback schedule data...');
-            scheduleData = [
-                { week: 1, day: 'Monday', time: '9:00 AM', subject: 'Python Basics Review', category: 'Programming', duration: 2, phase: 1, description: 'Review Python fundamentals, data structures, and basic programming concepts.' },
-                { week: 1, day: 'Monday', time: '2:00 PM', subject: 'Introduction to Machine Learning', category: 'AI/ML', duration: 3, phase: 1, description: 'Overview of ML concepts, supervised vs unsupervised learning, and basic algorithms.' },
-                { week: 1, day: 'Tuesday', time: '9:00 AM', subject: 'Aviation Fundamentals', category: 'Aviation', duration: 2, phase: 1, description: 'Basic principles of flight, aircraft systems, and aviation terminology.' },
-                { week: 1, day: 'Tuesday', time: '2:00 PM', subject: 'Data Science with Pandas', category: 'Programming', duration: 3, phase: 1, description: 'Learn data manipulation and analysis using Pandas library.' },
-                { week: 2, day: 'Monday', time: '9:00 AM', subject: 'Neural Networks Basics', category: 'AI/ML', duration: 3, phase: 2, description: 'Introduction to neural networks, perceptrons, and backpropagation.' },
-                { week: 2, day: 'Monday', time: '2:00 PM', subject: 'Aircraft Systems Integration', category: 'Aviation', duration: 2, phase: 2, description: 'Study how different aircraft systems work together.' }
-            ];
-            
-            weekNotes = {
-                1: "Foundation Phase: Building core knowledge in programming, AI/ML basics, and aviation fundamentals.",
-                2: "Core Learning Phase: Diving deeper into neural networks, advanced aviation systems, and API development."
-            };
-            
-            totalWeeks = 32; // Keep consistent with full schedule even in fallback
-            isDataLoaded = true;
-        }
-
-        // Firebase initialization
-        let isFirebaseInitialized = false;
-        let app, db, auth, userId;
-
-        async function initializeFirebase() {
-            // Check if Firebase variables are defined (they would be injected by your backend)
-            if (typeof __firebase_config !== 'undefined' && __firebase_config) {
-                try {
-                    const firebaseConfig = JSON.parse(__firebase_config);
-                    
-                    // Dynamically import Firebase modules
-                    const { initializeApp } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js");
-                    const { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js");
-                    const { getFirestore, doc, setDoc, getDoc, collection, query, onSnapshot, updateDoc, deleteDoc } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
-                    
-                    app = initializeApp(firebaseConfig);
-                    db = getFirestore(app);
-                    auth = getAuth(app);
-                    
-                    // Authenticate user
-                    const user = await new Promise((resolve, reject) => {
-                        onAuthStateChanged(auth, async (user) => {
-                            if (user) {
-                                resolve(user);
-                            } else {
-                                try {
-                                    const authToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-                                    if (authToken) {
-                                        await signInWithCustomToken(auth, authToken);
-                                    } else {
-                                        await signInAnonymously(auth);
-                                    }
-                                    resolve(auth.currentUser);
-                                } catch (error) {
-                                    reject(error);
-                                }
-                            }
-                        });
-                    });
-                    
-                    userId = user.uid;
-                    isFirebaseInitialized = true;
-                    console.log('Firebase initialized successfully. User ID:', userId);
-                    
-                } catch (error) {
-                    console.warn('Firebase initialization failed:', error.message);
-                    userId = 'local-user-' + Math.random().toString(36).substr(2, 9);
-                }
-            } else {
-                console.log('Firebase config not available. Running in standalone mode.');
-                userId = 'local-user-' + Math.random().toString(36).substr(2, 9);
-            }
-        }
-
-        function setupWeekSelector() {
-            const weekSelect = document.getElementById('weekSelect');
-            for (let i = 1; i <= totalWeeks; i++) {
-                const option = document.createElement('option');
-                option.value = i;
-                option.textContent = `Week ${i}`;
-                weekSelect.appendChild(option);
-            }
-            weekSelect.value = currentWeek;
-            weekSelect.addEventListener('change', (event) => {
-                currentWeek = parseInt(event.target.value);
-                renderSchedule(currentWeek);
-            });
-        }
-
-        function getCategoryColor(category) {
-            switch (category) {
-                case 'AI/ML': return 'bg-blue-200 text-blue-800';
-                case 'Aviation': return 'bg-green-200 text-green-800';
-                case 'Programming': return 'bg-yellow-200 text-yellow-800';
-                case 'Personal': return 'bg-purple-200 text-purple-800';
-                case 'Admin': return 'bg-gray-300 text-gray-800';
-                default: return 'bg-gray-200 text-gray-700';
-            }
-        }
-
-        function renderSchedule(week) {
-            const tableBody = document.getElementById('schedule-body');
-            tableBody.innerHTML = '';
-
-            // Get all items for this week (including shifted items)
-            const allItems = scheduleData.map(getEffectiveScheduleItem);
-            const weekData = allItems.filter(item => item.week === week);
-
-            weekData.forEach(item => {
-                const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
-                const isCompleted = completedTasks.has(taskId);
-                
-                const row = document.createElement('tr');
-                row.className = isCompleted ? 'bg-green-900/20' : 'hover:bg-slate-700/50';
-                
-                row.innerHTML = `
-                    <td class="p-3 text-slate-300">${item.day}</td>
-                    <td class="p-3 text-slate-300">${item.time}</td>
-                    <td class="p-3">
-                        <div class="flex items-center justify-between">
-                            <span class="text-slate-200 cursor-pointer hover:text-blue-400">${item.subject}</span>
-                            <div class="flex gap-2">
-                                <button onclick="shiftScheduleItem('${taskId}', 1)" class="text-xs bg-yellow-600 hover:bg-yellow-700 px-2 py-1 rounded" title="Move to tomorrow">+1d</button>
-                                <button onclick="shiftScheduleItem('${taskId}', -1)" class="text-xs bg-blue-600 hover:bg-blue-700 px-2 py-1 rounded" title="Move back one day">-1d</button>
-                            </div>
-                        </div>
-                    </td>
-                    <td class="p-3">
-                        <span class="px-2 py-1 rounded text-xs ${getCategoryColor(item.category)}">${item.category}</span>
-                    </td>
-                    <td class="p-3">
-                        <input type="checkbox" ${isCompleted ? 'checked' : ''} 
-                               onchange="toggleCompletion('${taskId}', this.checked)"
-                               class="w-4 h-4 text-blue-600 bg-slate-700 border-slate-600 rounded">
-                    </td>
-                `;
-
-                // Add click listener for modal
-                row.querySelector('span.cursor-pointer').addEventListener('click', () => {
-                    showModal(item.subject, item.description);
-                });
-
-                tableBody.appendChild(row);
-            });
-
-            // Add day-level shift controls
-            addDayShiftControls(week);
-            updateTimeAllocationChart(weekData);
-        }
-
-        function addDayShiftControls(week) {
-            const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-            const controlsDiv = document.createElement('div');
-            controlsDiv.className = 'mt-4 p-4 bg-slate-800 rounded-lg';
-            controlsDiv.innerHTML = `
-                <h4 class="text-sm font-semibold text-slate-300 mb-2">Shift Entire Days:</h4>
-                <div class="flex flex-wrap gap-2">
-                    ${dayNames.map(day => `
-                        <div class="flex items-center gap-1">
-                            <span class="text-xs text-slate-400">${day}:</span>
-                            <button onclick="shiftEntireDay(${week}, '${day}', 1)" class="text-xs bg-yellow-600 hover:bg-yellow-700 px-1 py-0.5 rounded">+1d</button>
-                            <button onclick="shiftEntireDay(${week}, '${day}', -1)" class="text-xs bg-blue-600 hover:bg-blue-700 px-1 py-0.5 rounded">-1d</button>
-                        </div>
-                    `).join('')}
-                </div>
-            `;
-            
-            document.querySelector('.card').appendChild(controlsDiv);
-        }
-
-        function toggleCompletion(taskId, isCompleted) {
-            if (isCompleted) {
-                completedTasks.add(taskId);
-            } else {
-                completedTasks.delete(taskId);
-            }
-            saveCompletedTasks();
-            updateAllCharts();
-        }
-
-        function updateAllCharts() {
-            updateCategoryCompletionGraph();
-            updatePhaseCompletionGraph();
-        }
-
-        function updateTimeAllocationChart(data) {
-            const ctx = document.getElementById('timeAllocationChart').getContext('2d');
-
-            const categoryTotals = data.reduce((acc, item) => {
-                if (item.category === 'Personal' || item.category === 'Admin') return acc;
-                if (!acc[item.category]) {
-                    acc[item.category] = 0;
-                }
-                acc[item.category] += item.duration;
-                return acc;
-            }, {});
-
-            const labels = Object.keys(categoryTotals);
-            const chartData = Object.values(categoryTotals);
-            const backgroundColors = labels.map(getChartColorForChart);
-            const borderColors = labels.map(label => getChartColorForChart(label).replace('0.7', '1'));
-
-            if (timeAllocationChart) {
-                timeAllocationChart.destroy();
-            }
-
-            timeAllocationChart = new Chart(ctx, {
-                type: 'doughnut',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Hours per Category',
-                        data: chartData,
-                        backgroundColor: backgroundColors,
-                        borderColor: borderColors,
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                        legend: {
-                            position: 'top',
-                            labels: {
-                                font: { size: 12 },
-                                boxWidth: 20,
-                                color: '#e2e8f0'
-                            }
-                        },
-                        title: {
-                            display: true,
-                            text: 'Weekly Study Time Allocation',
-                            font: { size: 16, weight: 'bold' },
-                            color: '#e2e8f0'
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.label + ': ' + context.parsed + ' hours';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updateCategoryCompletionGraph() {
-            const ctx = document.getElementById('categoryCompletionChart').getContext('2d');
-
-            const categoriesToTrack = ['AI/ML', 'Aviation', 'Programming'];
-            const completionStats = categoriesToTrack.reduce((acc, category) => {
-                acc[category] = { total: 0, completed: 0 };
-                return acc;
-            }, {});
-
-            scheduleData.forEach(item => {
-                if (categoriesToTrack.includes(item.category)) {
-                    const taskId = `task-${item.week}-${item.day}-${item.time.replace(/\s/g, '-')}`;
-                    completionStats[item.category].total++;
-                    if (completedTasks.has(taskId)) {
-                        completionStats[item.category].completed++;
-                    }
-                }
-            });
-
-            const labels = categoriesToTrack;
-            const completionPercentages = labels.map(category =>
-                completionStats[category].total > 0
-                    ? (completionStats[category].completed / completionStats[category].total) * 100
-                    : 0
-            );
-
-            const backgroundColors = labels.map(getChartColorForChart);
-            const borderColors = labels.map(label => getChartColorForChart(label).replace('0.7', '1'));
-
-            if (categoryCompletionChart) {
-                categoryCompletionChart.destroy();
-            }
-
-            categoryCompletionChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Completion Percentage',
-                        data: completionPercentages,
-                        backgroundColor: backgroundColors,
-                        borderColor: borderColors,
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            title: {
-                                display: true,
-                                text: 'Percentage (%)',
-                                color: '#e2e8f0'
-                            },
-                            ticks: {
-                                color: '#e2e8f0'
-                            },
-                            grid: {
-                                color: '#475569'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Category',
-                                color: '#e2e8f0'
-                            },
-                            ticks: {
-                                color: '#e2e8f0'
-                            },
-                            grid: {
-                                color: '#475569'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        title: {
-                            display: true,
-                            text: 'Overall Progress by Category',
-                            font: { size: 16, weight: 'bold' },
-                            color: '#e2e8f0'
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function updatePhaseCompletionGraph() {
-            const ctx = document.getElementById('phaseCompletionChart').getContext('2d');
-
-            const phaseNames = {
-                1: 'Phase 1: Foundation',
-                2: 'Phase 2: Core Learning',
-                3: 'Phase 3: Advanced Specialization',
-                4: 'Phase 4: AI Solution Architect'
-            };
-
-            const phaseStats = {};
-            for (let i = 1; i <= 4; i++) {
-                phaseStats[i] = { total: 0, completed: 0 };
-            }
-
-            scheduleData.forEach(item => {
-                if (item.phase && phaseStats[item.phase]) {
-                    phaseStats[item.phase].total++;
-                    const taskId = `task-${item.week}-${item.day}-${item.time.replace(/\s/g, '-')}`;
-                    if (completedTasks.has(taskId)) {
-                        phaseStats[item.phase].completed++;
-                    }
-                }
-            });
-
-            const labels = Object.keys(phaseStats).map(phase => phaseNames[phase]);
-            const completionPercentages = Object.values(phaseStats).map(stats =>
-                stats.total > 0 ? (stats.completed / stats.total) * 100 : 0
-            );
-
-            const backgroundColors = [
-                'rgba(75, 192, 192, 0.7)',   // Teal for Phase 1
-                'rgba(255, 159, 64, 0.7)',   // Orange for Phase 2
-                'rgba(153, 102, 255, 0.7)',  // Purple for Phase 3
-                'rgba(255, 99, 132, 0.7)'    // Red for Phase 4
-            ];
-            const borderColors = backgroundColors.map(color => color.replace('0.7', '1'));
-
-            if (phaseCompletionChart) {
-                phaseCompletionChart.destroy();
-            }
-
-            phaseCompletionChart = new Chart(ctx, {
-                type: 'bar',
-                data: {
-                    labels: labels,
-                    datasets: [{
-                        label: 'Completion Percentage',
-                        data: completionPercentages,
-                        backgroundColor: backgroundColors,
-                        borderColor: borderColors,
-                        borderWidth: 1
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    scales: {
-                        y: {
-                            beginAtZero: true,
-                            max: 100,
-                            title: {
-                                display: true,
-                                text: 'Percentage (%)',
-                                color: '#e2e8f0'
-                            },
-                            ticks: {
-                                color: '#e2e8f0'
-                            },
-                            grid: {
-                                color: '#475569'
-                            }
-                        },
-                        x: {
-                            title: {
-                                display: true,
-                                text: 'Learning Phase',
-                                color: '#e2e8f0'
-                            },
-                            ticks: {
-                                color: '#e2e8f0'
-                            },
-                            grid: {
-                                color: '#475569'
-                            }
-                        }
-                    },
-                    plugins: {
-                        legend: { display: false },
-                        title: {
-                            display: true,
-                            text: 'Overall Progress by Phase',
-                            font: { size: 16, weight: 'bold' },
-                            color: '#e2e8f0'
-                        },
-                        tooltip: {
-                            callbacks: {
-                                label: function(context) {
-                                    return context.dataset.label + ': ' + context.parsed.y.toFixed(1) + '%';
-                                }
-                            }
-                        }
-                    }
-                }
-            });
-        }
-
-        function getChartColorForChart(category) {
-            switch (category) {
-                case 'AI/ML': return 'rgba(59, 130, 246, 0.7)';        // Blue
-                case 'Aviation': return 'rgba(16, 185, 129, 0.7)';     // Green
-                case 'Programming': return 'rgba(234, 179, 8, 0.7)';   // Yellow
-                case 'Personal': return 'rgba(139, 92, 246, 0.7)';     // Purple
-                case 'Admin': return 'rgba(156, 163, 175, 0.7)';       // Gray
-                default: return 'rgba(209, 213, 219, 0.7)';           // Light Gray
-            }
-        }
-
-        function showModal(title, description) {
-            document.getElementById('modalTitle').textContent = title;
-            document.getElementById('modalDescription').textContent = description;
-            document.getElementById('taskModal').style.display = "flex";
-        }
-
-        function closeModal() {
-            document.getElementById('taskModal').style.display = "none";
-        }
-
-        document.querySelector('.close-button').addEventListener('click', closeModal);
-
-        window.onclick = function(event) {
-            if (event.target == document.getElementById('taskModal')) {
-                closeModal();
-            }
-        }
-
-        async function loadScheduleFromSupabase() {
-            try {
-                console.log('Loading schedule from Supabase...');
-                const { data, error } = await window.supabaseClient
-                    .from('schedule_data')
-                    .select('*')
-                    .order('week', { ascending: true })
-                    .order('day', { ascending: true });
-                
-                if (error) {
-                    throw error;
-                }
-                
-                if (data && data.length > 0) {
-                    // Convert database format to app format
-                    scheduleData = data.map(item => ({
-                        week: item.week,
-                        day: item.day,
-                        time: item.time,
-                        subject: item.subject,
-                        category: item.category,
-                        description: item.description,
-                        duration: item.duration,
-                        phase: item.phase
-                    }));
-                    
-                    // Set total weeks based on data
-                    totalWeeks = Math.max(...scheduleData.map(item => item.week));
-                    
-                    // Generate week notes if not already set
-                    if (typeof weekNotes === 'undefined') {
-                        weekNotes = {};
-                        for (let i = 1; i <= totalWeeks; i++) {
-                            weekNotes[i] = `Week ${i} learning goals and activities.`;
-                        }
-                    }
-                    
-                    isDataLoaded = true;
-                    console.log(`Loaded ${scheduleData.length} schedule items from Supabase`);
-                    return true;
-                } else {
-                    throw new Error('No schedule data found in database');
-                }
-            } catch (error) {
-                console.error('Failed to load from Supabase:', error);
-                return false;
-            }
-        }
-    </script>
-    <script src="schedule-csv-converter.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
