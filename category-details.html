@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Category Details - AI & Aviation Training</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            min-height: 100vh;
+        }
+        .card {
+            background: rgba(30, 41, 59, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(71, 85, 105, 0.3);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+    </style>
+</head>
+<body class="text-slate-100">
+    <div class="container mx-auto p-6 max-w-6xl">
+        <div class="mb-6">
+            <button onclick="window.history.back()" class="bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg">
+                ← Back to Schedule
+            </button>
+        </div>
+        
+        <div class="card rounded-xl p-6">
+            <h1 id="categoryTitle" class="text-3xl font-bold mb-6">Category Details</h1>
+            
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <div class="text-center">
+                    <div id="totalTasks" class="text-3xl font-bold text-blue-400">0</div>
+                    <div class="text-sm text-slate-400">Total Tasks</div>
+                </div>
+                <div class="text-center">
+                    <div id="completedTasks" class="text-3xl font-bold text-green-400">0</div>
+                    <div class="text-sm text-slate-400">Completed</div>
+                </div>
+                <div class="text-center">
+                    <div id="progressPercent" class="text-3xl font-bold text-purple-400">0%</div>
+                    <div class="text-sm text-slate-400">Progress</div>
+                </div>
+            </div>
+            
+            <div id="tasksList" class="space-y-4">
+                <!-- Tasks will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Load category details
+        document.addEventListener('DOMContentLoaded', async () => {
+            const category = sessionStorage.getItem('selectedCategory');
+            if (!category) {
+                window.location.href = 'index.html';
+                return;
+            }
+            
+            document.getElementById('categoryTitle').textContent = `${category} Tasks`;
+            await loadCategoryTasks(category);
+        });
+        
+        async function loadCategoryTasks(category) {
+            try {
+                const { data, error } = await window.supabaseClient
+                    .from('schedule_data')
+                    .select('*')
+                    .eq('category', category)
+                    .order('week', { ascending: true });
+                
+                if (error) throw error;
+                
+                // Load completed tasks from localStorage
+                const completedTasks = new Set();
+                try {
+                    const saved = localStorage.getItem('completedTasks');
+                    if (saved) {
+                        JSON.parse(saved).forEach(task => completedTasks.add(task));
+                    }
+                } catch (e) {}
+                
+                const total = data.length;
+                const completed = data.filter(item => {
+                    const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
+                    return completedTasks.has(taskId);
+                }).length;
+                
+                document.getElementById('totalTasks').textContent = total;
+                document.getElementById('completedTasks').textContent = completed;
+                document.getElementById('progressPercent').textContent = 
+                    total > 0 ? Math.round((completed / total) * 100) + '%' : '0%';
+                
+                renderTasksList(data, completedTasks);
+                
+            } catch (error) {
+                console.error('Failed to load category tasks:', error);
+            }
+        }
+        
+        function renderTasksList(tasks, completedTasks) {
+            const container = document.getElementById('tasksList');
+            container.innerHTML = '';
+            
+            tasks.forEach(task => {
+                const taskId = `${task.week}-${task.day}-${task.time}-${task.subject}`;
+                const isCompleted = completedTasks.has(taskId);
+                
+                const taskCard = document.createElement('div');
+                taskCard.className = `p-4 rounded-lg border ${isCompleted ? 'bg-green-900/20 border-green-500' : 'bg-slate-800 border-slate-600'}`;
+                
+                taskCard.innerHTML = `
+                    <div class="flex justify-between items-start">
+                        <div>
+                            <h3 class="font-semibold text-lg">${task.subject}</h3>
+                            <p class="text-slate-400 text-sm">Week ${task.week} - ${task.day} - ${task.time}</p>
+                            <p class="text-slate-300 mt-2">${task.description}</p>
+                        </div>
+                        <div class="flex items-center">
+                            ${isCompleted ? 
+                                '<span class="text-green-400 text-2xl">✓</span>' : 
+                                '<span class="text-slate-500 text-2xl">○</span>'
+                            }
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(taskCard);
+            });
+        }
+    </script>
+</body>
+</html>
