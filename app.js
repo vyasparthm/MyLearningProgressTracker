@@ -341,8 +341,18 @@ async function resetAllShifts() {
 
 // Optimized render function with cleanup and duplicate prevention
 async function renderWeek(week) {
+    // Prevent multiple renders of same week
+    if (currentWeek === week && scheduleData && scheduleData.length > 0) {
+        return;
+    }
+    
     currentWeek = week;
     console.log(`🎨 Rendering week ${week}`);
+    
+    // Clear any existing timers or intervals
+    if (window.renderTimer) {
+        clearTimeout(window.renderTimer);
+    }
     
     document.getElementById('weekSelect').value = week;
     document.getElementById('weekTitle').textContent = `Week ${week}`;
@@ -350,11 +360,9 @@ async function renderWeek(week) {
     try {
         await loadScheduleData(week);
         
-        // Safe check for scheduleData
         const phase = (scheduleData && scheduleData.length > 0) ? scheduleData[0].phase : 1;
         document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
         
-        // Ensure scheduleData is an array
         const safeScheduleData = scheduleData || [];
         const weekDataWithShifts = safeScheduleData.map(getEffectiveScheduleItem);
         
@@ -373,10 +381,8 @@ async function renderWeek(week) {
 function renderSchedule(weekData) {
     const container = document.getElementById('scheduleContainer');
     
-    // Clear container efficiently
-    while (container.firstChild) {
-        container.removeChild(container.firstChild);
-    }
+    // Properly clear all child elements
+    container.innerHTML = '';
     
     if (weekData.length === 0) {
         container.innerHTML = '<div class="text-center text-slate-400 py-8">No sessions scheduled for this week</div>';
@@ -678,6 +684,10 @@ setInterval(() => {
         }
     }
 }, 30000); // Check every 30 seconds
+
+
+
+
 
 
 
