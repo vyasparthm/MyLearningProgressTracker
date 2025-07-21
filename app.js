@@ -27,13 +27,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('Initializing schedule app...');
     
     try {
-        await loadScheduleData();
         await loadCompletedTasks();
         await loadScheduleShifts();
         
         setupEventListeners();
         setupWeekSelector();
-        renderWeek(currentWeek);
+        await renderWeek(currentWeek); // This will load the data for current week
         
         console.log('App initialized successfully');
     } catch (error) {
@@ -467,7 +466,5 @@ function logMemoryUsage() {
         });
     }
 }
-
-
 
 
