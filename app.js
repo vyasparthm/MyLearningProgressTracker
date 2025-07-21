@@ -10,6 +10,10 @@ let dataCache = new Map();
 let lastLoadedWeek = null;
 const CACHE_MAX_SIZE = 3; // Only cache 3 weeks at a time
 
+// Prevent multiple initialization
+let isInitialized = false;
+let isInitializing = false;
+
 // Phase definitions - made immutable
 const phases = Object.freeze({
     1: Object.freeze({ name: "Foundation Building", weeks: "1-4" }),
@@ -53,11 +57,26 @@ function throttle(func, limit) {
     }
 }
 
-// Initialize app with better error handling
+// Initialize app with better error handling and prevention of multiple inits
 document.addEventListener('DOMContentLoaded', async () => {
+    // Prevent multiple initialization
+    if (isInitialized || isInitializing) {
+        console.warn('App already initialized or initializing, skipping...');
+        return;
+    }
+    
+    isInitializing = true;
     console.log('Initializing schedule app...');
     
     try {
+        // Check if required elements exist
+        if (!document.getElementById('scheduleContainer') || 
+            !document.getElementById('weekSelect') || 
+            !window.supabaseClient) {
+            console.error('Required elements or Supabase client not found');
+            return;
+        }
+        
         // Initialize in sequence to prevent race conditions
         await loadCompletedTasks();
         await loadScheduleShifts();
@@ -68,10 +87,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         // Only render current week initially
         await renderWeek(currentWeek);
         
-        console.log('App initialized successfully');
+        isInitialized = true;
+        console.log('✅ App initialized successfully');
     } catch (error) {
-        console.error('Failed to initialize app:', error);
+        console.error('❌ Failed to initialize app:', error);
         showError('Failed to load schedule data. Please refresh the page.');
+    } finally {
+        isInitializing = false;
     }
 });
 
@@ -89,26 +111,36 @@ function cleanupScheduleData() {
     }
 }
 
-// Optimized data loading with caching
+// Optimized data loading with caching and duplicate prevention
 async function loadScheduleData(week = currentWeek) {
-    console.log(`Loading data for week ${week}...`);
+    console.log(`📥 Loading data for week ${week}...`);
     
     // Check cache first
     if (dataCache.has(week)) {
         scheduleData = dataCache.get(week);
-        console.log(`✅ Loaded ${scheduleData.length} items from cache for week ${week}`);
+        console.log(`🔄 Loaded ${scheduleData.length} items from cache for week ${week}`);
         return;
     }
+    
+    // Prevent concurrent loads for same week
+    const loadingKey = `loading-${week}`;
+    if (window[loadingKey]) {
+        console.log(`⏳ Already loading week ${week}, waiting...`);
+        return;
+    }
+    
+    window[loadingKey] = true;
     
     // Clean up before loading
     cleanupScheduleData();
     
     if (!window.supabaseClient) {
+        delete window[loadingKey];
         throw new Error('Supabase client not initialized');
     }
     
     try {
-        console.log('Making Supabase query...');
+        console.log('🔍 Making Supabase query...');
         const { data, error } = await window.supabaseClient
             .from('schedule_data')
             .select('*')
@@ -117,7 +149,7 @@ async function loadScheduleData(week = currentWeek) {
             .order('time', { ascending: true });
         
         if (error) {
-            console.error('Supabase error details:', error);
+            console.error('❌ Supabase error details:', error);
             throw error;
         }
         
@@ -134,6 +166,8 @@ async function loadScheduleData(week = currentWeek) {
         console.error('❌ Database error:', error);
         scheduleData = [];
         throw error;
+    } finally {
+        delete window[loadingKey];
     }
 }
 
@@ -345,14 +379,25 @@ async function resetAllShifts() {
     }
 }
 
-// Optimized render function with cleanup
+// Optimized render function with cleanup and duplicate prevention
 async function renderWeek(week) {
-    // Prevent unnecessary re-renders
-    if (week === lastLoadedWeek && scheduleData) {
+    // Prevent rendering if already rendering same week
+    if (window.renderingWeek === week) {
+        console.log(`🔄 Already rendering week ${week}, skipping...`);
         return;
     }
     
+    // Prevent unnecessary re-renders of same data
+    if (week === lastLoadedWeek && scheduleData && !window.forceRender) {
+        console.log(`📋 Week ${week} already rendered with current data`);
+        return;
+    }
+    
+    window.renderingWeek = week;
     currentWeek = week;
+    
+    console.log(`🎨 Rendering week ${week}...`);
+    
     document.getElementById('weekSelect').value = week;
     document.getElementById('weekTitle').textContent = `Week ${week}`;
     
@@ -376,9 +421,14 @@ async function renderWeek(week) {
         updateStats(weekDataWithShifts);
         updateCategoryChart(weekDataWithShifts);
         
+        console.log(`✅ Successfully rendered week ${week}`);
+        
     } catch (error) {
-        console.error('Failed to load week data:', error);
+        console.error('❌ Failed to load week data:', error);
         showError(`Failed to load data for week ${week}`);
+    } finally {
+        delete window.renderingWeek;
+        window.forceRender = false;
     }
 }
 
@@ -634,12 +684,60 @@ function logMemoryUsage() {
     }
 }
 
-// Cleanup function for page unload
+// Cleanup function for page unload with debugging
 window.addEventListener('beforeunload', () => {
+    console.log('🧹 Cleaning up before page unload...');
     cleanupEventListeners();
     if (categoryChart) {
         categoryChart.destroy();
         categoryChart = null;
     }
     dataCache.clear();
+    isInitialized = false;
+    isInitializing = false;
 });
+
+// Add visibility change handler to detect tab switching
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab became visible');
+    } else {
+        console.log('🙈 Tab became hidden');
+    }
+});
+
+// Add debugging for potential causes of reinitialization
+if (typeof window.addEventListener === 'function') {
+    window.addEventListener('popstate', () => {
+        console.log('🔄 Popstate event fired');
+    });
+    
+    window.addEventListener('hashchange', () => {
+        console.log('🔗 Hash change event fired');
+    });
+    
+    window.addEventListener('pageshow', (event) => {
+        console.log('📄 Page show event fired, persisted:', event.persisted);
+    });
+    
+    window.addEventListener('error', (error) => {
+        console.error('💥 Global error:', error);
+    });
+}
+
+// Performance monitoring
+setInterval(() => {
+    if (performance.memory) {
+        const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+        const total = Math.round(performance.memory.totalJSHeapSize / 1024 / 1024);
+        
+        // Only log if memory usage is concerning
+        if (used > 100 || (used - 43) > 20) {
+            console.warn('⚠️ High memory usage detected:', {
+                used: used + ' MB',
+                total: total + ' MB',
+                increase: (used - 43) + ' MB from baseline'
+            });
+        }
+    }
+}, 30000); // Check every 30 seconds
