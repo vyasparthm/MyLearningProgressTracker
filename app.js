@@ -129,23 +129,23 @@ async function saveScheduleShifts() {
 
 // Setup event listeners
 function setupEventListeners() {
-    document.getElementById('prevWeek').addEventListener('click', () => {
+    document.getElementById('prevWeek').addEventListener('click', async () => {
         if (currentWeek > 1) {
             currentWeek--;
-            renderWeek(currentWeek);
+            await renderWeek(currentWeek);
         }
     });
     
-    document.getElementById('nextWeek').addEventListener('click', () => {
+    document.getElementById('nextWeek').addEventListener('click', async () => {
         if (currentWeek < 32) {
             currentWeek++;
-            renderWeek(currentWeek);
+            await renderWeek(currentWeek);
         }
     });
     
-    document.getElementById('weekSelect').addEventListener('change', (e) => {
+    document.getElementById('weekSelect').addEventListener('change', async (e) => {
         currentWeek = parseInt(e.target.value);
-        renderWeek(currentWeek);
+        await renderWeek(currentWeek);
     });
     
     document.getElementById('resetShifts').addEventListener('click', resetAllShifts);
@@ -215,22 +215,29 @@ async function resetAllShifts() {
 }
 
 // Render week
-function renderWeek(week) {
+async function renderWeek(week) {
     currentWeek = week;
     document.getElementById('weekSelect').value = week;
     document.getElementById('weekTitle').textContent = `Week ${week}`;
     
-    // Update phase info
-    const phase = scheduleData.find(item => item.week === week)?.phase || 1;
-    document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
-    
-    // Get week data with shifts applied
-    const allItems = scheduleData.map(getEffectiveScheduleItem);
-    const weekData = allItems.filter(item => item.week === week);
-    
-    renderSchedule(weekData);
-    updateStats(weekData);
-    updateCategoryChart(weekData);
+    try {
+        // Load fresh data for this specific week from database
+        await loadScheduleData(week);
+        
+        // Update phase info using the loaded data
+        const phase = scheduleData.length > 0 ? scheduleData[0].phase : 1;
+        document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
+        
+        // Apply shifts to the loaded data (scheduleData is already filtered to current week)
+        const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
+        
+        renderSchedule(weekDataWithShifts);
+        updateStats(weekDataWithShifts);
+        updateCategoryChart(weekDataWithShifts);
+    } catch (error) {
+        console.error('Failed to load week data:', error);
+        showError(`Failed to load data for week ${week}`);
+    }
 }
 
 // Render schedule
@@ -427,3 +434,7 @@ function showError(message) {
         errorDiv.remove();
     }, 5000);
 }
+
+
+
+
