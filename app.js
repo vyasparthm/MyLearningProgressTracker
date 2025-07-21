@@ -112,20 +112,10 @@ async function loadScheduleData(week = currentWeek) {
         return;
     }
     
-    // Prevent concurrent loads for same week
-    const loadingKey = `loading-${week}`;
-    if (window[loadingKey]) {
-        console.log(`⏳ Already loading week ${week}, waiting...`);
-        return;
-    }
-    
-    window[loadingKey] = true;
-    
     // Clean up before loading
     cleanupScheduleData();
     
     if (!window.supabaseClient) {
-        delete window[loadingKey];
         throw new Error('Supabase client not initialized');
     }
     
@@ -143,21 +133,17 @@ async function loadScheduleData(week = currentWeek) {
             throw error;
         }
         
-        scheduleData = data || [];
+        scheduleData = data || []; // Ensure it's always an array
         
         // Cache the result
-        dataCache.set(week, [...scheduleData]); // Store a copy
-        lastLoadedWeek = week;
+        dataCache.set(week, [...scheduleData]);
         
         console.log(`✅ Loaded ${scheduleData.length} items for week ${week}`);
-        logMemoryUsage();
         
     } catch (error) {
         console.error('❌ Database error:', error);
-        scheduleData = [];
+        scheduleData = []; // Fallback to empty array
         throw error;
-    } finally {
-        delete window[loadingKey];
     }
 }
 
@@ -352,11 +338,6 @@ async function resetAllShifts() {
 
 // Optimized render function with cleanup and duplicate prevention
 async function renderWeek(week) {
-    if (week === currentWeek && scheduleData.length > 0) {
-        console.log(`Week ${week} already loaded`);
-        return;
-    }
-    
     currentWeek = week;
     console.log(`🎨 Rendering week ${week}`);
     
@@ -366,10 +347,13 @@ async function renderWeek(week) {
     try {
         await loadScheduleData(week);
         
-        const phase = scheduleData.length > 0 ? scheduleData[0].phase : 1;
+        // Safe check for scheduleData
+        const phase = (scheduleData && scheduleData.length > 0) ? scheduleData[0].phase : 1;
         document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
         
-        const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
+        // Ensure scheduleData is an array
+        const safeScheduleData = scheduleData || [];
+        const weekDataWithShifts = safeScheduleData.map(getEffectiveScheduleItem);
         
         renderSchedule(weekDataWithShifts);
         updateStats(weekDataWithShifts);
@@ -691,6 +675,8 @@ setInterval(() => {
         }
     }
 }, 30000); // Check every 30 seconds
+
+
 
 
 
