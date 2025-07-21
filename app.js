@@ -73,12 +73,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         setupEventListeners();
         setupWeekSelector();
         
-        // Only load week 1 on startup
+        // Only load week 1 on startup - NO automatic progression
         currentWeek = 1;
         await renderWeek(1);
         
         isInitialized = true;
-        console.log('✅ App initialized with week 1');
+        console.log('✅ App initialized with week 1 ONLY');
     } catch (error) {
         console.error('❌ Failed to initialize:', error);
         showError('Failed to load schedule data.');
@@ -107,13 +107,10 @@ async function loadScheduleData(week = currentWeek) {
     
     // Check cache first
     if (dataCache.has(week)) {
-        scheduleData = dataCache.get(week);
+        scheduleData = [...dataCache.get(week)]; // Create a copy
         console.log(`🔄 Loaded ${scheduleData.length} items from cache for week ${week}`);
         return;
     }
-    
-    // Clean up before loading
-    cleanupScheduleData();
     
     if (!window.supabaseClient) {
         throw new Error('Supabase client not initialized');
@@ -133,16 +130,22 @@ async function loadScheduleData(week = currentWeek) {
             throw error;
         }
         
-        scheduleData = data || []; // Ensure it's always an array
+        scheduleData = data || [];
         
         // Cache the result
         dataCache.set(week, [...scheduleData]);
+        
+        // Limit cache size
+        if (dataCache.size > CACHE_MAX_SIZE) {
+            const oldestKey = dataCache.keys().next().value;
+            dataCache.delete(oldestKey);
+        }
         
         console.log(`✅ Loaded ${scheduleData.length} items for week ${week}`);
         
     } catch (error) {
         console.error('❌ Database error:', error);
-        scheduleData = []; // Fallback to empty array
+        scheduleData = [];
         throw error;
     }
 }
@@ -675,6 +678,8 @@ setInterval(() => {
         }
     }
 }, 30000); // Check every 30 seconds
+
+
 
 
 
