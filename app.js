@@ -44,7 +44,15 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Load schedule data from Supabase - only for current week
 async function loadScheduleData(week = currentWeek) {
+    console.log(`Loading data for week ${week}...`);
+    
+    // Check if supabase client exists
+    if (!window.supabaseClient) {
+        throw new Error('Supabase client not initialized');
+    }
+    
     try {
+        console.log('Making Supabase query...');
         const { data, error } = await window.supabaseClient
             .from('schedule_data')
             .select('*')
@@ -52,18 +60,20 @@ async function loadScheduleData(week = currentWeek) {
             .order('day', { ascending: true })
             .order('time', { ascending: true });
         
-        if (error) throw error;
+        console.log('Raw Supabase response:', { data, error });
         
-        if (data && data.length > 0) {
-            // Only store current week data
-            scheduleData = data;
-            console.log(`Loaded ${scheduleData.length} schedule items for week ${week}`);
-        } else {
-            scheduleData = [];
-            console.log(`No schedule data found for week ${week}`);
+        if (error) {
+            console.error('Supabase error details:', error);
+            throw error;
         }
+        
+        scheduleData = data || [];
+        console.log(`✅ Loaded ${scheduleData.length} items for week ${week}`);
+        
     } catch (error) {
-        console.error('Failed to load from database:', error);
+        console.error('❌ Database error:', error);
+        // Fallback to empty array
+        scheduleData = [];
         throw error;
     }
 }
@@ -434,6 +444,9 @@ function showError(message) {
         errorDiv.remove();
     }, 5000);
 }
+
+
+
 
 
 
