@@ -57,41 +57,31 @@ function throttle(func, limit) {
     }
 }
 
-// Initialize app with better error handling and prevention of multiple inits
+// Simplified initialization - only load week 1
 document.addEventListener('DOMContentLoaded', async () => {
-    // Prevent multiple initialization
     if (isInitialized || isInitializing) {
-        console.warn('App already initialized or initializing, skipping...');
         return;
     }
     
     isInitializing = true;
-    console.log('Initializing schedule app...');
+    console.log('Initializing app...');
     
     try {
-        // Check if required elements exist
-        if (!document.getElementById('scheduleContainer') || 
-            !document.getElementById('weekSelect') || 
-            !window.supabaseClient) {
-            console.error('Required elements or Supabase client not found');
-            return;
-        }
-        
-        // Initialize in sequence to prevent race conditions
         await loadCompletedTasks();
         await loadScheduleShifts();
         
         setupEventListeners();
         setupWeekSelector();
         
-        // Only render current week initially
-        await renderWeek(currentWeek);
+        // Only load week 1 on startup
+        currentWeek = 1;
+        await renderWeek(1);
         
         isInitialized = true;
-        console.log('✅ App initialized successfully');
+        console.log('✅ App initialized with week 1');
     } catch (error) {
-        console.error('❌ Failed to initialize app:', error);
-        showError('Failed to load schedule data. Please refresh the page.');
+        console.error('❌ Failed to initialize:', error);
+        showError('Failed to load schedule data.');
     } finally {
         isInitializing = false;
     }
@@ -251,61 +241,42 @@ const saveScheduleShifts = debounce(async () => {
 let eventListeners = [];
 
 function setupEventListeners() {
-    // Clean up previous listeners
     cleanupEventListeners();
+    
+    const weekSelectHandler = async (e) => {
+        const newWeek = parseInt(e.target.value);
+        if (newWeek !== currentWeek && newWeek >= 1 && newWeek <= 32) {
+            console.log(`📅 User selected week ${newWeek}`);
+            await renderWeek(newWeek);
+        }
+    };
     
     const prevWeekHandler = async () => {
         if (currentWeek > 1) {
-            currentWeek--;
-            await renderWeek(currentWeek);
+            const newWeek = currentWeek - 1;
+            document.getElementById('weekSelect').value = newWeek;
+            await renderWeek(newWeek);
         }
     };
     
     const nextWeekHandler = async () => {
         if (currentWeek < 32) {
-            currentWeek++;
-            await renderWeek(currentWeek);
+            const newWeek = currentWeek + 1;
+            document.getElementById('weekSelect').value = newWeek;
+            await renderWeek(newWeek);
         }
     };
     
-    const weekSelectHandler = debounce(async (e) => {
-        const newWeek = parseInt(e.target.value);
-        if (newWeek !== currentWeek) {
-            currentWeek = newWeek;
-            await renderWeek(currentWeek);
-        }
-    }, 300);
+    document.getElementById('weekSelect').addEventListener('change', weekSelectHandler);
+    document.getElementById('prevWeek').addEventListener('click', prevWeekHandler);
+    document.getElementById('nextWeek').addEventListener('click', nextWeekHandler);
+    document.getElementById('resetShifts').addEventListener('click', resetAllShifts);
     
-    // Add listeners and track them
-    const prevBtn = document.getElementById('prevWeek');
-    const nextBtn = document.getElementById('nextWeek');
-    const weekSelect = document.getElementById('weekSelect');
-    const resetBtn = document.getElementById('resetShifts');
-    const closeBtn = document.getElementById('closeModal');
-    const modal = document.getElementById('taskModal');
-    
-    prevBtn.addEventListener('click', prevWeekHandler);
-    nextBtn.addEventListener('click', nextWeekHandler);
-    weekSelect.addEventListener('change', weekSelectHandler);
-    resetBtn.addEventListener('click', resetAllShifts);
-    closeBtn.addEventListener('click', closeModal);
-    
-    const modalClickHandler = (e) => {
-        if (e.target.id === 'taskModal') {
-            closeModal();
-        }
-    };
-    modal.addEventListener('click', modalClickHandler);
-    
-    // Track listeners for cleanup
-    eventListeners = [
-        { element: prevBtn, event: 'click', handler: prevWeekHandler },
-        { element: nextBtn, event: 'click', handler: nextWeekHandler },
-        { element: weekSelect, event: 'change', handler: weekSelectHandler },
-        { element: resetBtn, event: 'click', handler: resetAllShifts },
-        { element: closeBtn, event: 'click', handler: closeModal },
-        { element: modal, event: 'click', handler: modalClickHandler }
-    ];
+    // Modal listeners
+    document.getElementById('closeModal').addEventListener('click', closeModal);
+    document.getElementById('taskModal').addEventListener('click', (e) => {
+        if (e.target.id === 'taskModal') closeModal();
+    });
 }
 
 function cleanupEventListeners() {
@@ -381,22 +352,13 @@ async function resetAllShifts() {
 
 // Optimized render function with cleanup and duplicate prevention
 async function renderWeek(week) {
-    // Prevent rendering if already rendering same week
-    if (window.renderingWeek === week) {
-        console.log(`🔄 Already rendering week ${week}, skipping...`);
+    if (week === currentWeek && scheduleData.length > 0) {
+        console.log(`Week ${week} already loaded`);
         return;
     }
     
-    // Prevent unnecessary re-renders of same data
-    if (week === lastLoadedWeek && scheduleData && !window.forceRender) {
-        console.log(`📋 Week ${week} already rendered with current data`);
-        return;
-    }
-    
-    window.renderingWeek = week;
     currentWeek = week;
-    
-    console.log(`🎨 Rendering week ${week}...`);
+    console.log(`🎨 Rendering week ${week}`);
     
     document.getElementById('weekSelect').value = week;
     document.getElementById('weekTitle').textContent = `Week ${week}`;
@@ -404,15 +366,7 @@ async function renderWeek(week) {
     try {
         await loadScheduleData(week);
         
-        if (!scheduleData || scheduleData.length === 0) {
-            document.getElementById('weekPhase').textContent = 'Phase 1: Foundation Building';
-            renderSchedule([]);
-            updateStats([]);
-            updateCategoryChart([]);
-            return;
-        }
-        
-        const phase = scheduleData[0].phase || 1;
+        const phase = scheduleData.length > 0 ? scheduleData[0].phase : 1;
         document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
         
         const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
@@ -421,14 +375,10 @@ async function renderWeek(week) {
         updateStats(weekDataWithShifts);
         updateCategoryChart(weekDataWithShifts);
         
-        console.log(`✅ Successfully rendered week ${week}`);
-        
+        console.log(`✅ Week ${week} rendered`);
     } catch (error) {
-        console.error('❌ Failed to load week data:', error);
-        showError(`Failed to load data for week ${week}`);
-    } finally {
-        delete window.renderingWeek;
-        window.forceRender = false;
+        console.error(`❌ Failed to render week ${week}:`, error);
+        showError(`Failed to load week ${week}`);
     }
 }
 
@@ -741,3 +691,6 @@ setInterval(() => {
         }
     }
 }, 30000); // Check every 30 seconds
+
+
+
