@@ -270,10 +270,23 @@ function setupEventListeners() {
 }
 
 function cleanupEventListeners() {
+    // Remove all stored event listeners
     eventListeners.forEach(({ element, event, handler }) => {
-        element.removeEventListener(event, handler);
+        if (element && element.removeEventListener) {
+            element.removeEventListener(event, handler);
+        }
     });
-    eventListeners = [];
+    eventListeners.length = 0;
+    
+    // Remove all checkbox listeners
+    document.querySelectorAll('input[type="checkbox"]').forEach(checkbox => {
+        checkbox.replaceWith(checkbox.cloneNode(true));
+    });
+    
+    // Remove all button listeners
+    document.querySelectorAll('button[onclick]').forEach(button => {
+        button.onclick = null;
+    });
 }
 
 // Efficient week selector setup
@@ -384,7 +397,12 @@ async function renderWeek(week) {
 function renderSchedule(weekData) {
     const container = document.getElementById('scheduleContainer');
     
-    // Properly clear all child elements
+    // Remove all event listeners from existing elements
+    container.querySelectorAll('*').forEach(element => {
+        element.replaceWith(element.cloneNode(true));
+    });
+    
+    // Clear container
     container.innerHTML = '';
     
     if (weekData.length === 0) {
@@ -641,14 +659,222 @@ function logMemoryUsage() {
     }
 }
 
-// Cleanup function for page unload with debugging
+// Enhanced cleanup for page unload
 window.addEventListener('beforeunload', () => {
-    console.log('🧹 Cleaning up before page unload...');
+    console.log('🧹 Comprehensive cleanup...');
+    
+    // Clear all timers
+    if (window.renderTimer) clearTimeout(window.renderTimer);
+    
+    // Cleanup event listeners
     cleanupEventListeners();
+    
+    // Destroy charts
+    destroyAllCharts();
+    
+    // Clear all data structures
+    dataCache.clear();
+    completedTasks.clear();
+    scheduleShifts.clear();
+    
+    // Clear DOM references
+    scheduleData = null;
+    
+    // Reset flags
+    isInitialized = false;
+    isInitializing = false;
+    
+    console.log('✅ Cleanup complete');
+});
+
+// Add visibility change handler to detect tab switching
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        console.log('👁️ Tab became visible');
+    } else {
+        console.log('🙈 Tab became hidden');
+    }
+});
+
+// Add debugging for potential causes of reinitialization
+if (typeof window.addEventListener === 'function') {
+    window.addEventListener('popstate', () => {
+        console.log('🔄 Popstate event fired');
+    });
+    
+    window.addEventListener('hashchange', () => {
+        console.log('🔗 Hash change event fired');
+    });
+    
+    window.addEventListener('pageshow', (event) => {
+        console.log('📄 Page show event fired, persisted:', event.persisted);
+    });
+    
+    window.addEventListener('error', (error) => {
+        console.error('💥 Global error:', error);
+    });
+}
+
+// Performance monitoring
+setInterval(() => {
+    if (performance.memory) {
+        const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+        const total = Math.round(performance.memory.totalJSHeapSize / 1024 / 1024);
+        
+        // Only log if memory usage is concerning
+        if (used > 100 || (used - 43) > 20) {
+            console.warn('⚠️ High memory usage detected:', {
+                used: used + ' MB',
+                total: total + ' MB',
+                increase: (used - 43) + ' MB from baseline'
+            });
+        }
+    }
+}, 30000); // Check every 30 seconds
+
+// Add this new function to calculate overall progress
+async function calculateOverallProgress() {
+    if (!window.supabaseClient) return {};
+    
+    try {
+        // Get all schedule data
+        const { data, error } = await window.supabaseClient
+            .from('schedule_data')
+            .select('*');
+        
+        if (error) throw error;
+        
+        const categoryProgress = {};
+        
+        data.forEach(item => {
+            const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
+            const isCompleted = completedTasks.has(taskId);
+            
+            if (!categoryProgress[item.category]) {
+                categoryProgress[item.category] = { total: 0, completed: 0 };
+            }
+            
+            categoryProgress[item.category].total++;
+            if (isCompleted) {
+                categoryProgress[item.category].completed++;
+            }
+        });
+        
+        return categoryProgress;
+    } catch (error) {
+        console.error('Failed to calculate overall progress:', error);
+        return {};
+    }
+}
+
+// Add this function to create the overall progress chart
+async function updateOverallProgressChart() {
+    const canvas = document.getElementById('overallProgressChart');
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    
+    // Destroy existing chart properly
+    if (overallProgressChart) {
+        overallProgressChart.destroy();
+        overallProgressChart = null;
+    }
+    
+    // Clear the canvas context
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Force canvas size
+    canvas.style.width = '300px !important';
+    canvas.style.height = '300px !important';
+    canvas.width = 300;
+    canvas.height = 300;
+    
+    const progressData = await calculateOverallProgress();
+    
+    if (Object.keys(progressData).length === 0) {
+        return;
+    }
+    
+    const labels = Object.keys(progressData);
+    const percentages = labels.map(category => {
+        const { total, completed } = progressData[category];
+        return total > 0 ? Math.round((completed / total) * 100) : 0;
+    });
+    
+    overallProgressChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'Progress %',
+                data: percentages,
+                backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#6b7280'],
+                borderWidth: 0
+            }]
+        },
+        options: {
+            responsive: false,
+            maintainAspectRatio: true,
+            aspectRatio: 1,
+            scales: {
+                y: { beginAtZero: true, max: 100, ticks: { color: '#e2e8f0' } },
+                x: { ticks: { color: '#e2e8f0' } }
+            },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function(context) {
+                            const category = context.label;
+                            const { total, completed } = progressData[category];
+                            return `${completed}/${total} tasks (${context.parsed.y}%)`;
+                        }
+                    }
+                }
+            },
+            onClick: (event, elements) => {
+                if (elements.length > 0) {
+                    const index = elements[0].index;
+                    const category = labels[index];
+                    sessionStorage.setItem('selectedCategory', category);
+                    window.location.href = 'category-details.html';
+                }
+            }
+        }
+    });
+}
+
+// Enhanced chart cleanup
+function destroyAllCharts() {
     if (categoryChart) {
         categoryChart.destroy();
         categoryChart = null;
     }
+    if (overallProgressChart) {
+        overallProgressChart.destroy();
+        overallProgressChart = null;
+    }
+    
+    // Clear canvas contexts
+    const categoryCanvas = document.getElementById('categoryChart');
+    const progressCanvas = document.getElementById('overallProgressChart');
+    
+    if (categoryCanvas) {
+        const ctx = categoryCanvas.getContext('2d');
+        ctx.clearRect(0, 0, categoryCanvas.width, categoryCanvas.height);
+    }
+    
+    if (progressCanvas) {
+        const ctx = progressCanvas.getContext('2d');
+        ctx.clearRect(0, 0, progressCanvas.width, progressCanvas.height);
+    }
+}
+
+// Cleanup function for page unload with debugging
+window.addEventListener('beforeunload', () => {
+    console.log('🧹 Cleaning up before page unload...');
+    cleanupEventListeners();
+    destroyAllCharts();
     dataCache.clear();
     isInitialized = false;
     isInitializing = false;
@@ -737,13 +963,18 @@ async function calculateOverallProgress() {
 // Add this function to create the overall progress chart
 async function updateOverallProgressChart() {
     const canvas = document.getElementById('overallProgressChart');
+    if (!canvas) return;
+    
     const ctx = canvas.getContext('2d');
     
-    // Destroy existing chart
+    // Destroy existing chart properly
     if (overallProgressChart) {
         overallProgressChart.destroy();
         overallProgressChart = null;
     }
+    
+    // Clear the canvas context
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
     
     // Force canvas size
     canvas.style.width = '300px !important';
@@ -770,9 +1001,7 @@ async function updateOverallProgressChart() {
             datasets: [{
                 label: 'Progress %',
                 data: percentages,
-                backgroundColor: [
-                    '#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#6b7280'
-                ],
+                backgroundColor: ['#3b82f6', '#10b981', '#f59e0b', '#8b5cf6', '#6b7280'],
                 borderWidth: 0
             }]
         },
@@ -781,14 +1010,8 @@ async function updateOverallProgressChart() {
             maintainAspectRatio: true,
             aspectRatio: 1,
             scales: {
-                y: {
-                    beginAtZero: true,
-                    max: 100,
-                    ticks: { color: '#e2e8f0' }
-                },
-                x: {
-                    ticks: { color: '#e2e8f0' }
-                }
+                y: { beginAtZero: true, max: 100, ticks: { color: '#e2e8f0' } },
+                x: { ticks: { color: '#e2e8f0' } }
             },
             plugins: {
                 legend: { display: false },
@@ -806,1892 +1029,54 @@ async function updateOverallProgressChart() {
                 if (elements.length > 0) {
                     const index = elements[0].index;
                     const category = labels[index];
-                    showCategoryDetails(category);
+                    sessionStorage.setItem('selectedCategory', category);
+                    window.location.href = 'category-details.html';
                 }
             }
         }
     });
 }
 
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // Store the category in sessionStorage and navigate
-    sessionStorage.setItem('selectedCategory', category);
-    window.location.href = 'category-details.html';
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
+// Add memory monitoring with automatic cleanup
+function monitorMemory() {
+    if (!performance.memory) return;
+    
+    const used = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024);
+    const total = Math.round(performance.memory.totalJSHeapSize / 1024 / 1024);
+    
+    // Trigger cleanup if memory usage is high
+    if (used > 150) {
+        console.warn('🚨 High memory usage detected, triggering cleanup...');
+        
+        // Force garbage collection if available
+        if (window.gc) {
+            window.gc();
+        }
+        
+        // Clear old cache entries
+        if (dataCache.size > 1) {
+            const keysToDelete = Array.from(dataCache.keys()).slice(0, -1);
+            keysToDelete.forEach(key => dataCache.delete(key));
+        }
+        
+        // Destroy and recreate charts to free memory
+        destroyAllCharts();
+        setTimeout(() => {
+            if (scheduleData) {
+                const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
+                updateCategoryChart(weekDataWithShifts);
+                updateOverallProgressChart();
+            }
+        }, 100);
+    }
+}
+
+// Monitor memory every 15 seconds
+setInterval(monitorMemory, 15000);
 
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented latercategory}`);
-}
-
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Sho towshow caiegnry details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to
-g details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
-
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
 
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
 
-// Add this function to show category details
-function showCategoryDetails(category) {
-    // This function will be implemented later
-    console.log(`Showing details for category: ${category}`);
-}
 
-// Add this function to
 
 
 
