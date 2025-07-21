@@ -1,38 +1,72 @@
-// Global variables
+// Global variables - minimized and optimized
 let currentWeek = 1;
-let scheduleData = [];
+let scheduleData = null; // Use null instead of empty array
 let completedTasks = new Set();
 let scheduleShifts = new Map();
 let categoryChart = null;
 
-// Phase definitions
-const phases = {
-    1: { name: "Foundation Building", weeks: "1-4" },
-    2: { name: "Core Learning", weeks: "5-16" },
-    3: { name: "Specialization", weeks: "17-24" },
-    4: { name: "Job Search", weeks: "25-32" }
-};
+// Add cache management
+let dataCache = new Map();
+let lastLoadedWeek = null;
+const CACHE_MAX_SIZE = 3; // Only cache 3 weeks at a time
 
-// Category colors
-const categoryColors = {
-    'AI/ML': { bg: 'bg-blue-500', text: 'text-blue-100', border: 'border-blue-500' },
-    'Aviation': { bg: 'bg-green-500', text: 'text-green-100', border: 'border-green-500' },
-    'Programming': { bg: 'bg-yellow-500', text: 'text-yellow-900', border: 'border-yellow-500' },
-    'Personal': { bg: 'bg-purple-500', text: 'text-purple-100', border: 'border-purple-500' },
-    'Admin': { bg: 'bg-gray-500', text: 'text-gray-100', border: 'border-gray-500' }
-};
+// Phase definitions - made immutable
+const phases = Object.freeze({
+    1: Object.freeze({ name: "Foundation Building", weeks: "1-4" }),
+    2: Object.freeze({ name: "Core Learning", weeks: "5-16" }),
+    3: Object.freeze({ name: "Specialization", weeks: "17-24" }),
+    4: Object.freeze({ name: "Job Search", weeks: "25-32" })
+});
 
-// Initialize app
+// Category colors - made immutable
+const categoryColors = Object.freeze({
+    'AI/ML': Object.freeze({ bg: 'bg-blue-500', text: 'text-blue-100', border: 'border-blue-500' }),
+    'Aviation': Object.freeze({ bg: 'bg-green-500', text: 'text-green-100', border: 'border-green-500' }),
+    'Programming': Object.freeze({ bg: 'bg-yellow-500', text: 'text-yellow-900', border: 'border-yellow-500' }),
+    'Personal': Object.freeze({ bg: 'bg-purple-500', text: 'text-purple-100', border: 'border-purple-500' }),
+    'Admin': Object.freeze({ bg: 'bg-gray-500', text: 'text-gray-100', border: 'border-gray-500' })
+});
+
+// Add debouncing and throttling utilities
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+
+function throttle(func, limit) {
+    let inThrottle;
+    return function() {
+        const args = arguments;
+        const context = this;
+        if (!inThrottle) {
+            func.apply(context, args);
+            inThrottle = true;
+            setTimeout(() => inThrottle = false, limit);
+        }
+    }
+}
+
+// Initialize app with better error handling
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('Initializing schedule app...');
     
     try {
+        // Initialize in sequence to prevent race conditions
         await loadCompletedTasks();
         await loadScheduleShifts();
         
         setupEventListeners();
         setupWeekSelector();
-        await renderWeek(currentWeek); // This will load the data for current week
+        
+        // Only render current week initially
+        await renderWeek(currentWeek);
         
         console.log('App initialized successfully');
     } catch (error) {
@@ -41,11 +75,34 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Load schedule data from Supabase - only for current week
+// Clean up previous data before loading new
+function cleanupScheduleData() {
+    if (scheduleData && Array.isArray(scheduleData)) {
+        scheduleData.length = 0; // Clear array efficiently
+    }
+    scheduleData = null;
+    
+    // Clean up old cache entries
+    if (dataCache.size > CACHE_MAX_SIZE) {
+        const oldestKey = dataCache.keys().next().value;
+        dataCache.delete(oldestKey);
+    }
+}
+
+// Optimized data loading with caching
 async function loadScheduleData(week = currentWeek) {
     console.log(`Loading data for week ${week}...`);
     
-    // Check if supabase client exists
+    // Check cache first
+    if (dataCache.has(week)) {
+        scheduleData = dataCache.get(week);
+        console.log(`✅ Loaded ${scheduleData.length} items from cache for week ${week}`);
+        return;
+    }
+    
+    // Clean up before loading
+    cleanupScheduleData();
+    
     if (!window.supabaseClient) {
         throw new Error('Supabase client not initialized');
     }
@@ -59,31 +116,35 @@ async function loadScheduleData(week = currentWeek) {
             .order('day', { ascending: true })
             .order('time', { ascending: true });
         
-        console.log('Raw Supabase response:', { data, error });
-        
         if (error) {
             console.error('Supabase error details:', error);
             throw error;
         }
         
         scheduleData = data || [];
+        
+        // Cache the result
+        dataCache.set(week, [...scheduleData]); // Store a copy
+        lastLoadedWeek = week;
+        
         console.log(`✅ Loaded ${scheduleData.length} items for week ${week}`);
-        logMemoryUsage(); // Add this line
+        logMemoryUsage();
         
     } catch (error) {
         console.error('❌ Database error:', error);
-        // Fallback to empty array
         scheduleData = [];
         throw error;
     }
 }
 
-// Load completed tasks
+// Optimized task loading
 async function loadCompletedTasks() {
     try {
         const saved = localStorage.getItem('completedTasks');
         if (saved) {
-            completedTasks = new Set(JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+            completedTasks.clear(); // Clear before adding
+            parsed.forEach(task => completedTasks.add(task));
         }
     } catch (error) {
         console.warn('Failed to load completed tasks:', error);
@@ -91,49 +152,53 @@ async function loadCompletedTasks() {
     }
 }
 
-// Save completed tasks
-function saveCompletedTasks() {
+// Throttled save function
+const saveCompletedTasks = throttle(() => {
     try {
         localStorage.setItem('completedTasks', JSON.stringify([...completedTasks]));
     } catch (error) {
         console.warn('Failed to save completed tasks:', error);
     }
-}
+}, 1000); // Save at most once per second
 
-// Load schedule shifts
+// Optimized schedule shifts loading
 async function loadScheduleShifts() {
     try {
         const { data, error } = await window.supabaseClient
             .from('schedule_shifts')
             .select('shifts')
             .eq('id', 'user_shifts')
-            .maybeSingle(); // Use maybeSingle() instead of single()
+            .maybeSingle();
         
         if (error) {
             console.warn('Failed to load shifts from database:', error);
-            // Fallback to localStorage
             const saved = localStorage.getItem('scheduleShifts');
             if (saved) {
-                scheduleShifts = new Map(JSON.parse(saved));
+                const parsed = JSON.parse(saved);
+                scheduleShifts.clear();
+                parsed.forEach(([key, value]) => scheduleShifts.set(key, value));
             }
             return;
         }
         
         if (data?.shifts) {
-            scheduleShifts = new Map(data.shifts);
+            scheduleShifts.clear();
+            data.shifts.forEach(([key, value]) => scheduleShifts.set(key, value));
             console.log('Schedule shifts loaded from Supabase');
         }
     } catch (error) {
         console.warn('Failed to load shifts from database, using localStorage:', error);
         const saved = localStorage.getItem('scheduleShifts');
         if (saved) {
-            scheduleShifts = new Map(JSON.parse(saved));
+            const parsed = JSON.parse(saved);
+            scheduleShifts.clear();
+            parsed.forEach(([key, value]) => scheduleShifts.set(key, value));
         }
     }
 }
 
-// Save schedule shifts
-async function saveScheduleShifts() {
+// Debounced save function
+const saveScheduleShifts = debounce(async () => {
     try {
         const shiftsArray = Array.from(scheduleShifts.entries());
         await window.supabaseClient
@@ -146,56 +211,98 @@ async function saveScheduleShifts() {
         console.warn('Failed to save to database, using localStorage:', error);
         localStorage.setItem('scheduleShifts', JSON.stringify(Array.from(scheduleShifts.entries())));
     }
-}
+}, 2000); // Save at most once per 2 seconds
 
-// Setup event listeners
+// Optimized event listeners with cleanup
+let eventListeners = [];
+
 function setupEventListeners() {
-    document.getElementById('prevWeek').addEventListener('click', async () => {
+    // Clean up previous listeners
+    cleanupEventListeners();
+    
+    const prevWeekHandler = async () => {
         if (currentWeek > 1) {
             currentWeek--;
             await renderWeek(currentWeek);
         }
-    });
+    };
     
-    document.getElementById('nextWeek').addEventListener('click', async () => {
+    const nextWeekHandler = async () => {
         if (currentWeek < 32) {
             currentWeek++;
             await renderWeek(currentWeek);
         }
-    });
+    };
     
-    document.getElementById('weekSelect').addEventListener('change', async (e) => {
-        currentWeek = parseInt(e.target.value);
-        await renderWeek(currentWeek);
-    });
+    const weekSelectHandler = debounce(async (e) => {
+        const newWeek = parseInt(e.target.value);
+        if (newWeek !== currentWeek) {
+            currentWeek = newWeek;
+            await renderWeek(currentWeek);
+        }
+    }, 300);
     
-    document.getElementById('resetShifts').addEventListener('click', resetAllShifts);
-    document.getElementById('closeModal').addEventListener('click', closeModal);
+    // Add listeners and track them
+    const prevBtn = document.getElementById('prevWeek');
+    const nextBtn = document.getElementById('nextWeek');
+    const weekSelect = document.getElementById('weekSelect');
+    const resetBtn = document.getElementById('resetShifts');
+    const closeBtn = document.getElementById('closeModal');
+    const modal = document.getElementById('taskModal');
     
-    // Close modal on outside click
-    document.getElementById('taskModal').addEventListener('click', (e) => {
+    prevBtn.addEventListener('click', prevWeekHandler);
+    nextBtn.addEventListener('click', nextWeekHandler);
+    weekSelect.addEventListener('change', weekSelectHandler);
+    resetBtn.addEventListener('click', resetAllShifts);
+    closeBtn.addEventListener('click', closeModal);
+    
+    const modalClickHandler = (e) => {
         if (e.target.id === 'taskModal') {
             closeModal();
         }
-    });
+    };
+    modal.addEventListener('click', modalClickHandler);
+    
+    // Track listeners for cleanup
+    eventListeners = [
+        { element: prevBtn, event: 'click', handler: prevWeekHandler },
+        { element: nextBtn, event: 'click', handler: nextWeekHandler },
+        { element: weekSelect, event: 'change', handler: weekSelectHandler },
+        { element: resetBtn, event: 'click', handler: resetAllShifts },
+        { element: closeBtn, event: 'click', handler: closeModal },
+        { element: modal, event: 'click', handler: modalClickHandler }
+    ];
 }
 
-// Setup week selector
+function cleanupEventListeners() {
+    eventListeners.forEach(({ element, event, handler }) => {
+        element.removeEventListener(event, handler);
+    });
+    eventListeners = [];
+}
+
+// Efficient week selector setup
 function setupWeekSelector() {
     const select = document.getElementById('weekSelect');
-    select.innerHTML = '';
     
-    for (let i = 1; i <= 32; i++) {
-        const option = document.createElement('option');
-        option.value = i;
-        option.textContent = `Week ${i}`;
-        select.appendChild(option);
+    // Only create options if they don't exist
+    if (select.children.length === 0) {
+        const fragment = document.createDocumentFragment();
+        
+        for (let i = 1; i <= 32; i++) {
+            const option = document.createElement('option');
+            option.value = i;
+            option.textContent = `Week ${i}`;
+            fragment.appendChild(option);
+        }
+        
+        select.appendChild(fragment);
     }
     
     select.value = currentWeek;
 }
 
-// Get effective schedule item (with shifts applied)
+// Optimized schedule item processing
 function getEffectiveScheduleItem(item) {
     const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
     const shift = scheduleShifts.get(taskId) || 0;
@@ -206,10 +313,12 @@ function getEffectiveScheduleItem(item) {
     return { ...item, week: shifted.week, day: shifted.day };
 }
 
-// Calculate shifted date
+// Optimized date calculation
+const dayNames = Object.freeze(['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']);
+const dayIndexMap = Object.freeze(Object.fromEntries(dayNames.map((day, index) => [day, index])));
+
 function getShiftedDate(originalWeek, originalDay, daysToShift) {
-    const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const dayIndex = dayNames.indexOf(originalDay);
+    const dayIndex = dayIndexMap[originalDay];
     
     const totalDays = (originalWeek - 1) * 7 + dayIndex + daysToShift;
     const newWeek = Math.floor(totalDays / 7) + 1;
@@ -219,69 +328,89 @@ function getShiftedDate(originalWeek, originalDay, daysToShift) {
     return { week: Math.max(1, Math.min(32, newWeek)), day: newDay };
 }
 
-// Shift schedule item
-function shiftScheduleItem(taskId, daysToShift) {
+// Throttled shift function
+const shiftScheduleItem = throttle((taskId, daysToShift) => {
     scheduleShifts.set(taskId, (scheduleShifts.get(taskId) || 0) + daysToShift);
     saveScheduleShifts();
     renderWeek(currentWeek);
-}
+}, 500);
 
-// Reset all shifts
 async function resetAllShifts() {
     if (confirm('Reset all schedule shifts? This will restore the original schedule.')) {
         scheduleShifts.clear();
         await saveScheduleShifts();
-        renderWeek(currentWeek);
+        // Clear cache to force reload
+        dataCache.clear();
+        await renderWeek(currentWeek);
     }
 }
 
-// Render week
+// Optimized render function with cleanup
 async function renderWeek(week) {
+    // Prevent unnecessary re-renders
+    if (week === lastLoadedWeek && scheduleData) {
+        return;
+    }
+    
     currentWeek = week;
     document.getElementById('weekSelect').value = week;
     document.getElementById('weekTitle').textContent = `Week ${week}`;
     
     try {
-        // Load fresh data for this specific week from database
         await loadScheduleData(week);
         
-        // Update phase info using the loaded data
-        const phase = scheduleData.length > 0 ? scheduleData[0].phase : 1;
+        if (!scheduleData || scheduleData.length === 0) {
+            document.getElementById('weekPhase').textContent = 'Phase 1: Foundation Building';
+            renderSchedule([]);
+            updateStats([]);
+            updateCategoryChart([]);
+            return;
+        }
+        
+        const phase = scheduleData[0].phase || 1;
         document.getElementById('weekPhase').textContent = `Phase ${phase}: ${phases[phase].name}`;
         
-        // Apply shifts to the loaded data (scheduleData is already filtered to current week)
         const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
         
         renderSchedule(weekDataWithShifts);
         updateStats(weekDataWithShifts);
         updateCategoryChart(weekDataWithShifts);
+        
     } catch (error) {
         console.error('Failed to load week data:', error);
         showError(`Failed to load data for week ${week}`);
     }
 }
 
-// Render schedule
+// Optimized DOM manipulation
 function renderSchedule(weekData) {
     const container = document.getElementById('scheduleContainer');
-    container.innerHTML = '';
+    
+    // Clear container efficiently
+    while (container.firstChild) {
+        container.removeChild(container.firstChild);
+    }
     
     if (weekData.length === 0) {
         container.innerHTML = '<div class="text-center text-slate-400 py-8">No sessions scheduled for this week</div>';
         return;
     }
     
-    // Group by day
-    const dayOrder = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const groupedByDay = {};
+    // Use document fragment for better performance
+    const fragment = document.createDocumentFragment();
     
-    dayOrder.forEach(day => {
-        groupedByDay[day] = weekData.filter(item => item.day === day);
+    // Group by day efficiently
+    const groupedByDay = {};
+    weekData.forEach(item => {
+        if (!groupedByDay[item.day]) {
+            groupedByDay[item.day] = [];
+        }
+        groupedByDay[item.day].push(item);
     });
     
     // Render each day
-    dayOrder.forEach(day => {
-        if (groupedByDay[day].length === 0) return;
+    dayNames.forEach(day => {
+        if (!groupedByDay[day] || groupedByDay[day].length === 0) return;
         
         const daySection = document.createElement('div');
         daySection.className = 'mb-6';
@@ -300,11 +429,13 @@ function renderSchedule(weekData) {
         });
         
         daySection.appendChild(sessionsContainer);
-        container.appendChild(daySection);
+        fragment.appendChild(daySection);
     });
+    
+    container.appendChild(fragment);
 }
 
-// Create session card
+// Optimized session card creation
 function createSessionCard(item) {
     const taskId = `${item.week}-${item.day}-${item.time}-${item.subject}`;
     const isCompleted = completedTasks.has(taskId);
@@ -328,32 +459,60 @@ function createSessionCard(item) {
             <div class="flex items-center gap-2 ml-4">
                 <input type="checkbox" ${isCompleted ? 'checked' : ''} 
                        class="w-5 h-5 text-blue-600 bg-slate-700 border-slate-600 rounded focus:ring-blue-500"
-                       onclick="event.stopPropagation(); toggleCompletion('${taskId}', this.checked)">
-                <button onclick="event.stopPropagation(); shiftScheduleItem('${taskId}', 1)" 
-                        class="btn-warning px-2 py-1 rounded text-xs" title="Move to tomorrow">
+                       data-task-id="${taskId}">
+                <button class="btn-warning px-2 py-1 rounded text-xs" title="Move to tomorrow" data-task-id="${taskId}" data-action="shift">
                     +1d
                 </button>
             </div>
         </div>
     `;
     
+    // Use event delegation instead of inline handlers
+    const checkbox = card.querySelector('input[type="checkbox"]');
+    const shiftBtn = card.querySelector('button[data-action="shift"]');
+    
+    checkbox.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleCompletion(taskId, e.target.checked);
+    });
+    
+    shiftBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        shiftScheduleItem(taskId, 1);
+    });
+    
     card.addEventListener('click', () => showTaskModal(item, taskId));
     
     return card;
 }
 
-// Toggle completion
-function toggleCompletion(taskId, completed) {
+// Optimized toggle completion
+const toggleCompletion = debounce((taskId, completed) => {
     if (completed) {
         completedTasks.add(taskId);
     } else {
         completedTasks.delete(taskId);
     }
     saveCompletedTasks();
-    renderWeek(currentWeek);
-}
+    
+    // Update UI without full re-render
+    const checkbox = document.querySelector(`input[data-task-id="${taskId}"]`);
+    if (checkbox) {
+        const card = checkbox.closest('.session-card');
+        if (completed) {
+            card.classList.add('completed');
+        } else {
+            card.classList.remove('completed');
+        }
+    }
+    
+    // Update stats
+    if (scheduleData) {
+        const weekDataWithShifts = scheduleData.map(getEffectiveScheduleItem);
+        updateStats(weekDataWithShifts);
+    }
+}, 300);
 
-// Show task modal
 function showTaskModal(item, taskId) {
     const modal = document.getElementById('taskModal');
     const colors = categoryColors[item.category] || categoryColors['Admin'];
@@ -380,14 +539,12 @@ function showTaskModal(item, taskId) {
     modal.classList.add('flex');
 }
 
-// Close modal
 function closeModal() {
     const modal = document.getElementById('taskModal');
     modal.classList.add('hidden');
     modal.classList.remove('flex');
 }
 
-// Update stats
 function updateStats(weekData) {
     const total = weekData.length;
     const completed = weekData.filter(item => {
@@ -402,17 +559,22 @@ function updateStats(weekData) {
     document.getElementById('progressBar').style.width = `${percentage}%`;
 }
 
-// Update category chart
 function updateCategoryChart(weekData) {
     const categoryData = {};
     weekData.forEach(item => {
-        categoryData[item.category] = (categoryData[item.category] || 0) + item.duration;
+        categoryData[item.category] = (categoryData[item.category] || 0) + (item.duration || 1);
     });
     
     const ctx = document.getElementById('categoryChart').getContext('2d');
     
+    // Properly dispose of existing chart
     if (categoryChart) {
         categoryChart.destroy();
+        categoryChart = null;
+    }
+    
+    if (Object.keys(categoryData).length === 0) {
+        return;
     }
     
     categoryChart = new Chart(ctx, {
@@ -444,27 +606,40 @@ function updateCategoryChart(weekData) {
     });
 }
 
-// Show error message
-function showError(message) {
+// Throttled error display
+const showError = throttle((message) => {
+    // Remove existing error messages
+    document.querySelectorAll('.error-message').forEach(el => el.remove());
+    
     const errorDiv = document.createElement('div');
-    errorDiv.className = 'fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
+    errorDiv.className = 'error-message fixed top-4 right-4 bg-red-500 text-white px-6 py-3 rounded-lg shadow-lg z-50';
     errorDiv.textContent = message;
     document.body.appendChild(errorDiv);
     
     setTimeout(() => {
         errorDiv.remove();
     }, 5000);
-}
+}, 1000);
 
-// Also add memory monitoring
 function logMemoryUsage() {
     if (performance.memory) {
         console.log('Memory usage:', {
             used: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + ' MB',
             total: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024) + ' MB',
-            scheduleDataLength: scheduleData.length
+            scheduleDataLength: scheduleData ? scheduleData.length : 0,
+            cacheSize: dataCache.size,
+            completedTasksSize: completedTasks.size,
+            scheduleShiftsSize: scheduleShifts.size
         });
     }
 }
 
-
+// Cleanup function for page unload
+window.addEventListener('beforeunload', () => {
+    cleanupEventListeners();
+    if (categoryChart) {
+        categoryChart.destroy();
+        categoryChart = null;
+    }
+    dataCache.clear();
+});
