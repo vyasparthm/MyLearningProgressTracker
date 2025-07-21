@@ -69,6 +69,7 @@ async function loadScheduleData(week = currentWeek) {
         
         scheduleData = data || [];
         console.log(`✅ Loaded ${scheduleData.length} items for week ${week}`);
+        logMemoryUsage(); // Add this line
         
     } catch (error) {
         console.error('❌ Database error:', error);
@@ -456,9 +457,16 @@ function showError(message) {
     }, 5000);
 }
 
-
-
-
+// Also add memory monitoring
+function logMemoryUsage() {
+    if (performance.memory) {
+        console.log('Memory usage:', {
+            used: Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + ' MB',
+            total: Math.round(performance.memory.totalJSHeapSize / 1024 / 1024) + ' MB',
+            scheduleDataLength: scheduleData.length
+        });
+    }
+}
 
 
 
