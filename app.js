@@ -42,21 +42,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 });
 
-// Load schedule data from Supabase
-async function loadScheduleData() {
+// Load schedule data from Supabase - only for current week
+async function loadScheduleData(week = currentWeek) {
     try {
         const { data, error } = await window.supabaseClient
             .from('schedule_data')
             .select('*')
-            .order('week', { ascending: true });
+            .eq('week', week)
+            .order('day', { ascending: true })
+            .order('time', { ascending: true });
         
         if (error) throw error;
         
         if (data && data.length > 0) {
+            // Only store current week data
             scheduleData = data;
-            console.log(`Loaded ${scheduleData.length} schedule items from database`);
+            console.log(`Loaded ${scheduleData.length} schedule items for week ${week}`);
         } else {
-            throw new Error('No schedule data found in database');
+            scheduleData = [];
+            console.log(`No schedule data found for week ${week}`);
         }
     } catch (error) {
         console.error('Failed to load from database:', error);
